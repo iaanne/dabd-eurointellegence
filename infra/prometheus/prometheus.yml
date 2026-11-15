@@ -1,0 +1,21 @@
+# Konfigurasi Prometheus untuk EuroGrid Intelligence.
+# Pemilik metrik aplikasi: Nad (F-14). File ini hanya berisi target inti
+# agar stack monitoring menyala; Nad menambahkan exporter aplikasi di sini.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: redpanda
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["redpanda:9644"]
+
+  - job_name: grafana
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["grafana:3000"]

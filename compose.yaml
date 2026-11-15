@@ -64,6 +64,8 @@ services:
     restart: unless-stopped
     depends_on:
       - prefect-server
+      - garage
+      - iceberg-rest
     env_file:
       - .env
     environment:
@@ -75,6 +77,8 @@ services:
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      REDPANDA_BROKERS: redpanda:9092
+      TRINO_URL: http://trino:8081
     volumes:
       - ./data:/data:Z
       - ./flows:/app/flows:ro,Z
@@ -134,8 +138,189 @@ services:
       retries: 12
       start_period: 10s
 
+  redpanda:
+    image: docker.io/redpandadata/redpanda:v26.2.7
+    container_name: eurogrid-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:39092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr=PLAINTEXT://0.0.0.0:8082,OUTSIDE://0.0.0.0:39080
+      - --advertise-pandaproxy-addr=PLAINTEXT://redpanda:8082,OUTSIDE://localhost:8080
+    ports:
+      - "9092:39092"
+      - "8080:39080"
+      - "127.0.0.1:9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9644/v1/status/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redpanda-topics:
+    image: docker.io/redpandadata/redpanda:v26.2.7
+    container_name: eurogrid-redpanda-topics
+    restart: "no"
+    depends_on:
+      - redpanda
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        n=0
+        until rpk topic create \
+          -X brokers=redpanda:9092 \
+          --partitions 3 --replicas 1 \
+          --if-not-exists \
+          eurogrid.events eurogrid.events.dlq; do
+          n=$$((n+1))
+          if [ "$${n}" -ge 30 ]; then
+            echo "redpanda belum siap, topic tidak dibuat" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+
+  trino:
+    image: docker.io/trinodb/trino:484
+    container_name: eurogrid-trino
+    restart: unless-stopped
+    depends_on:
+      - iceberg-rest
+      - garage
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    volumes:
+      - ./infra/trino/etc/config.properties:/etc/trino/config.properties:ro,Z
+      - ./infra/trino/etc/jvm.config:/etc/trino/jvm.config:ro,Z
+      - ./infra/trino/etc/node.properties:/etc/trino/node.properties:ro,Z
+      - ./infra/trino/etc/catalog/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro,Z
+      - trino-data:/data/trino
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: infra/mlflow/Dockerfile
+    image: localhost/eurogrid-mlflow:latest
+    container_name: eurogrid-mlflow
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:5000:5000"
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql://eurogrid:${POSTGRES_PASSWORD:-eurogrid}@postgres:5432/mlflow
+      - --default-artifact-root=/mlflow/artifacts
+    volumes:
+      - mlflow-data:/mlflow/artifacts
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  metabase:
+    # v0.60.3.3, dipin per digest (tag persis tidak tersedia di registry)
+    image: docker.io/metabase/metabase@sha256:66567d39bf2d03be6f33deefacbb24790131aeacca7cf1d5e206fefe892fcb42
+    container_name: eurogrid-metabase
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_HOST: postgres
+      MB_DB_USER: eurogrid
+      MB_DB_PASS: ${POSTGRES_PASSWORD:-eurogrid}
+    volumes:
+      - metabase-data:/metabase-data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  prometheus:
+    # v3.11.3, dipin per digest
+    image: docker.io/prom/prometheus@sha256:387d460e3b15ec55d2837fc9275388a4730dbc8c0287926d3f662c5298ce7385
+    container_name: eurogrid-prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - prom-data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  grafana:
+    # 13.0.1+security-01, dipin per digest
+    image: docker.io/grafana/grafana@sha256:135f4b96b7a54f904415dc51e71a1cd945b1f8400772b2feac2df5112b43f4ed
+    container_name: eurogrid-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro,Z
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
 volumes:
   garage-meta:
   garage-data:
   prefect-data:
   pg-data:
+  redpanda-data:
+  trino-data:
+  mlflow-data:
+  metabase-data:
+  prom-data:
+  grafana-data:

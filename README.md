@@ -17,15 +17,17 @@ Rincian peran, RACI, dan milestone ada di [`docs/TEAM.pdf`](docs/TEAM.pdf).
 | 2 | Garage S3, Web UI, katalog Iceberg REST, smoke test tulis baca | [`docs/evidence/2026-11-10-garage-iceberg.md`](docs/evidence/2026-11-10-garage-iceberg.md) |
 | 3 | Deployment Prefect harian, work pool, retry, jadwal 05:00 | [`docs/evidence/2026-11-10-prefect-deployment.md`](docs/evidence/2026-11-10-prefect-deployment.md) |
 | 4 | ENTSO-E, katalog Iceberg di Postgres, tabel Bronze di Garage, arsip batch mentah | [`docs/evidence/2026-11-10-entsoe-postgres-iceberg.md`](docs/evidence/2026-11-10-entsoe-postgres-iceberg.md) |
+| 5 | Redpanda broker dan topic, Trino membaca Bronze dari Garage | [`docs/evidence/2026-11-13-redpanda-trino.md`](docs/evidence/2026-11-13-redpanda-trino.md) |
+| 6 | Pelengkap F-01 (MLflow, Metabase, Prometheus, Grafana) dan F-17 (backup, rehearsal restore, uji restart) | [`docs/evidence/2026-11-14-platform-f01-f17.md`](docs/evidence/2026-11-14-platform-f01-f17.md) |
 
 Tabel Bronze yang sudah tersedia di namespace `bronze`:
 
 | Tabel | Isi | Baris saat ini |
 | --- | --- | --- |
-| `bronze.energy_charts_public_power` | Pembangkitan per jenis di Jerman | 16.128 |
-| `bronze.energy_charts_price` | Harga DE-LU | 768 |
-| `bronze.open_meteo_weather_hourly` | Cuaca Berlin per jam | 768 |
-| `bronze.entsoe_actual_load` | Beban aktual DE-LU dari ENTSO-E | 672 |
+| `bronze.energy_charts_public_power` | Pembangkitan per jenis di Jerman | 22.176 |
+| `bronze.energy_charts_price` | Harga DE-LU | 1.056 |
+| `bronze.open_meteo_weather_hourly` | Cuaca Berlin per jam | 1.056 |
+| `bronze.entsoe_actual_load` | Beban aktual DE-LU dari ENTSO-E | 960 |
 
 Jumlah baris bergerak mengikuti rentang yang di-ingest. Silver belum ada.
 Rencana lengkap ada di [`docs/PRD.md`](docs/PRD.md) dan
@@ -36,13 +38,17 @@ Rencana lengkap ada di [`docs/PRD.md`](docs/PRD.md) dan
 ```
 src/eurogrid/     paket Python: klien sumber, writer Bronze, publikasi Iceberg, CLI
 flows/            flow Prefect untuk ingest harian
-scripts/          pembuat dokumen dan dek, smoke test Iceberg
+scripts/          pembuat dokumen dan dek, smoke test Iceberg, backup dan restore
 infra/garage/     konfigurasi Garage
 infra/iceberg/    image Iceberg REST dengan driver JDBC Postgres
 infra/prefect/    Dockerfile dan entrypoint worker Prefect
+infra/trino/      konfigurasi Trino dan katalog Iceberg
+infra/mlflow/     image MLflow dengan driver Postgres
+infra/prometheus/ target scrape Prometheus
+infra/grafana/    provisioning datasource Grafana
 tests/            uji otomatis pytest
 docs/             PRD, arsitektur, kontrak data, dan bukti pengujian
-compose.yaml      Garage, Postgres, Iceberg REST, Prefect
+compose.yaml      Garage, Postgres, Iceberg REST, Prefect, Redpanda, Trino, MLflow, Metabase, Prometheus, Grafana
 prefect.yaml      definisi deployment Prefect
 Makefile          perintah harian
 ```
@@ -81,6 +87,14 @@ podman-compose -p eurogrid up -d
 | Postgres | 127.0.0.1:5432 | backend katalog Iceberg, database `iceberg` |
 | Iceberg REST | http://localhost:8181 | katalog `eurogrid`, metadata di Postgres |
 | Prefect UI | http://localhost:4200 | server dan worker |
+| Redpanda Kafka API | http://localhost:9092 | topic `eurogrid.events` dan `eurogrid.events.dlq` |
+| Redpanda Admin API | http://127.0.0.1:9644 | hanya localhost |
+| Redpanda HTTP Proxy | http://localhost:8080 | Pandaproxy |
+| Trino | http://localhost:8081 | katalog `iceberg`, koneksi ke Iceberg REST |
+| MLflow | http://127.0.0.1:5000 | eksperimen Jim (F-11), backend Postgres dan volume `mlflow-data` |
+| Metabase | http://127.0.0.1:3000 | dashboard El (F-13), metadata di Postgres |
+| Prometheus | http://127.0.0.1:9090 | metrik (F-14), dikonsumsi Grafana |
+| Grafana | http://127.0.0.1:3001 | tampilan metrik (F-14), admin dari `GRAFANA_ADMIN_PASSWORD` |
 
 Image `infra/iceberg/Dockerfile` menambahkan driver JDBC Postgres ke image
 `apache/iceberg-rest-fixture`. Tanpa driver itu katalog tidak dapat memakai
@@ -126,6 +140,71 @@ make prefect-deploy   # daftarkan ulang deployment dari prefect.yaml
 
 Hasil run terlihat di http://localhost:4200. Menjalankan rentang yang sama dua
 kali tidak membuat batch baru, karena nama batch ditentukan checksum isi respons.
+
+## Redpanda
+
+Broker stream untuk lapisan stream (F-04 dan F-05). Topic dibuat otomatis oleh
+service `redpanda-topics` setiap kali stack dinyalakan:
+
+- `eurogrid.events`, 3 partisi, replica 1
+- `eurogrid.events.dlq`, tempat event rusak atau terlambat
+
+```bash
+make redpanda-up       # nyalakan broker dan buat topic
+make redpanda-topics   # buat topic manual
+make redpanda-list     # daftar topic
+```
+
+Klien di dalam container memakai `redpanda:9092`, klien di host memakai
+`localhost:9092`.
+
+## Trino
+
+Trino 484 membaca tabel Iceberg langsung dari katalog REST di Iceberg REST
+server, dengan berkas data di Garage. Katalog bernama `iceberg`.
+
+```bash
+make trino-up
+make trino-query Q="SELECT count(*) FROM bronze.energy_charts_price"
+```
+
+Konfigurasi ada di `infra/trino/etc/`, termasuk `catalog/iceberg.properties`
+yang membaca kredensial Garage dari variabel lingkungan.
+
+## Monitoring
+
+Prometheus dan Grafana dipakai untuk metrik dan log (F-14, milik Nad).
+Prometheus hanya punya target inti: dirinya, Redpanda, dan Grafana. Exporter
+aplikasi ditambahkan Nad di `infra/prometheus/prometheus.yml`. Grafana
+dapat datasource Prometheus secara otomatis lewat provisioning.
+
+```bash
+make monitoring-up     # nyalakan Prometheus dan Grafana
+```
+
+## MLflow
+
+MLflow dipakai Jim untuk pelacakan eksperimen (F-11). Backend store di
+Postgres (database `mlflow`), artefak di volume `mlflow-data`. Jim cukup
+menunjuk `MLFLOW_TRACKING_URI=http://localhost:5000` (sudah ada di
+`.env.example`).
+
+## Backup dan restore
+
+F-17, milik Platform. Backup konsisten (penulis dihentikan sejenak) berisi
+`pg_dump` ketiga database (`iceberg`, `mlflow`, `metabase`) plus tar volume
+Garage dan artefak MLflow, ditulis ke `~/Backups/eurogrid/<timestamp UTC>`:
+
+```bash
+make backup                          # buat backup
+make restore-verify SRC=<dir>        # rehearsal restore non-destruktif
+```
+
+`restore-verify` mengembalikan dump ke database scratch, membandingkan
+checksum tiap tabel, lalu mengekstrak tar dan membandingkannya dengan volume
+live. Volume dan database live tidak diubah. Restore penuh yang destruktif
+(`CONFIRM=yes scripts/restore.sh <dir> --force`) belum diuji; perlu
+persetujuan eksplisit.
 
 Catatan tahap ini: server Prefect menyimpan metadata di SQLite pada volume
 `prefect-data`. Worker berjalan sebagai root di dalam container rootless, jadi
@@ -254,6 +333,8 @@ Rincian kontrak data ada di [`docs/data-contract.md`](docs/data-contract.md).
 
 1. Silver: normalisasi, quality gate, dan tabel karantina.
 2. Gold: tiga mart, sepuluh query, lalu Trino sebagai lapisan serving.
-3. Stream producer dan consumer Redpanda dengan dedup dan DLQ.
+3. Stream producer dan consumer Redpanda dengan dedup dan DLQ. Broker dan topic
+   `eurogrid.events` serta `eurogrid.events.dlq` sudah jalan (increment 5),
+   yang belum ada adalah producer, consumer, dan dedup.
 4. Model prakiraan beban, MLflow, API, dan dashboard.
 5. Observability, alert, keamanan, dan backup.
