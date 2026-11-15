@@ -1,7 +1,7 @@
 START ?= $(shell date -d '7 days ago' +%F)
 END ?= $(shell date -d 'yesterday' +%F)
 
-.PHONY: setup test demo demo-power demo-price demo-weather demo-entsoe list show docs clean prefect-up prefect-down prefect-deploy prefect-run prefect-logs publish-iceberg sync-bronze
+.PHONY: setup test demo demo-power demo-price demo-weather demo-entsoe list show docs clean prefect-up prefect-down prefect-deploy prefect-run prefect-logs publish-iceberg sync-bronze streaming-up streaming-down streaming-logs
 
 setup:
 	uv sync --extra dev
@@ -55,3 +55,12 @@ prefect-run:
 
 prefect-logs:
 	podman logs -f eurogrid-prefect-worker
+
+streaming-up:
+	podman-compose -p eurogrid up -d --build kafka kafka-init streaming-producer streaming-consumer
+
+streaming-down:
+	podman-compose -p eurogrid stop kafka kafka-init streaming-producer streaming-consumer
+
+streaming-logs:
+	podman logs -f eurogrid-streaming-producer eurogrid-streaming-consumer

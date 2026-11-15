@@ -1,0 +1,12 @@
+countries:
+  - name: Germany
+    code: DE_LU
+    enabled: true
+
+  - name: Netherlands
+    code: NL
+    enabled: true
+
+  - name: Great Britain
+    code: GB
+    enabled: true

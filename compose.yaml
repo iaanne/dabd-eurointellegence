@@ -59,7 +59,8 @@ services:
     build:
       context: .
       dockerfile: infra/prefect/Dockerfile
-    image: localhost/eurogrid-prefect-worker:latest
+    image: eurogrid-prefect-worker:latest
+    pull_policy: build
     container_name: eurogrid-prefect-worker
     restart: unless-stopped
     depends_on:
@@ -85,7 +86,8 @@ services:
     build:
       context: .
       dockerfile: infra/iceberg/Dockerfile
-    image: localhost/eurogrid-iceberg-rest:latest
+    image: eurogrid-iceberg-rest:latest
+    pull_policy: build
     container_name: eurogrid-iceberg-rest
     restart: unless-stopped
     depends_on:
@@ -134,8 +136,97 @@ services:
       retries: 12
       start_period: 10s
 
+  kafka:
+    image: docker.io/apache/kafka:3.8.0
+    container_name: eurogrid-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      CLUSTER_ID: "4L622nShTZaJguP5RKGxYg"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  kafka-init:
+    image: docker.io/apache/kafka:3.8.0
+    container_name: eurogrid-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/infra/kafka/create-topics.sh"]
+    volumes:
+      - ./infra/kafka/create-topics.sh:/infra/kafka/create-topics.sh:ro,Z
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_REPLICATION_FACTOR: 1
+      KAFKA_TOPIC_PARTITIONS: 3
+
+  streaming-producer:
+    build:
+      context: .
+      dockerfile: infra/streaming/Dockerfile
+    image: eurogrid-streaming:latest
+    pull_policy: build
+    container_name: eurogrid-streaming-producer
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - kafka-init
+    env_file:
+      - .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ENTSOE_POLLING_INTERVAL: "300"
+      EUROGRID_DATA_DIR: /data
+    command: ["python", "-m", "eurogrid.streaming.producers.entsoe_producer"]
+    volumes:
+      - ./src:/app/src:ro,Z
+
+  streaming-consumer:
+    build:
+      context: .
+      dockerfile: infra/streaming/Dockerfile
+    image: eurogrid-streaming:latest
+    pull_policy: build
+    container_name: eurogrid-streaming-consumer
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - kafka-init
+    env_file:
+      - .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      ENTSOE_BRONZE_PATH: /data/bronze/entsoe_actual_load
+      ENTSOE_CHECKPOINT_PATH: /data/checkpoints/entsoe_actual_load
+    command: ["python", "-m", "eurogrid.streaming.consumers.entsoe_consumer"]
+    volumes:
+      - ./data:/data:Z
+      - ./src:/app/src:ro,Z
+
 volumes:
   garage-meta:
   garage-data:
   prefect-data:
   pg-data:
+  kafka-data:
