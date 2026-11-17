@@ -1,13 +1,10 @@
 # EuroGrid Intelligence
 
-Platform data kelistrikan Eropa untuk tugas besar TBP. Tahap ini fokus pada
-Jerman: menarik data pembangkitan, beban, harga, dan cuaca, menyimpannya ke
-lapisan Bronze yang dapat direplay, lalu menerbitkannya sebagai tabel Iceberg
-di Garage S3.
+Platform data kelistrikan Eropa: menarik pembangkitan, beban, harga, dan cuaca
+dari tiga penyedia terbuka, menyimpannya ke lakehouse Bronze yang dapat direplay,
+menerbitkannya sebagai tabel Iceberg di Garage S3, lalu menyajikannya lewat Trino.
 
-Kelompok 3: Ian (Platform dan Storage), Nad (Kualitas Data dan Governance),
-Jim (Analitik dan Machine Learning), El (Serving, Stream, dan Keamanan).
-Rincian peran, RACI, dan milestone ada di [`docs/TEAM.pdf`](docs/TEAM.pdf).
+> Tugas besar mata kuliah, memakai data terbuka. Bukan layanan produksi.
 
 ## Status
 
@@ -20,7 +17,7 @@ Rincian peran, RACI, dan milestone ada di [`docs/TEAM.pdf`](docs/TEAM.pdf).
 | 5 | Redpanda broker dan topic, Trino membaca Bronze dari Garage | [`docs/evidence/2026-11-13-redpanda-trino.md`](docs/evidence/2026-11-13-redpanda-trino.md) |
 | 6 | Pelengkap F-01 (MLflow, Metabase, Prometheus, Grafana) dan F-17 (backup, rehearsal restore, uji restart) | [`docs/evidence/2026-11-14-platform-f01-f17.md`](docs/evidence/2026-11-14-platform-f01-f17.md) |
 
-Tabel Bronze yang sudah tersedia di namespace `bronze`:
+Tabel Bronze di namespace `bronze`:
 
 | Tabel | Isi | Baris saat ini |
 | --- | --- | --- |
@@ -29,28 +26,28 @@ Tabel Bronze yang sudah tersedia di namespace `bronze`:
 | `bronze.open_meteo_weather_hourly` | Cuaca Berlin per jam | 1.056 |
 | `bronze.entsoe_actual_load` | Beban aktual DE-LU dari ENTSO-E | 960 |
 
-Jumlah baris bergerak mengikuti rentang yang di-ingest. Silver belum ada.
+Jumlah baris bergerak mengikuti rentang yang di-ingest. Silver dan Gold belum ada.
 Rencana lengkap ada di [`docs/PRD.md`](docs/PRD.md) dan
 [`docs/architecture.md`](docs/architecture.md).
 
-## Struktur repositori
+## Struktur
 
 ```
-src/eurogrid/     paket Python: klien sumber, writer Bronze, publikasi Iceberg, CLI
-flows/            flow Prefect untuk ingest harian
-scripts/          pembuat dokumen dan dek, smoke test Iceberg, backup dan restore
-infra/garage/     konfigurasi Garage
-infra/iceberg/    image Iceberg REST dengan driver JDBC Postgres
-infra/prefect/    Dockerfile dan entrypoint worker Prefect
-infra/trino/      konfigurasi Trino dan katalog Iceberg
-infra/mlflow/     image MLflow dengan driver Postgres
-infra/prometheus/ target scrape Prometheus
-infra/grafana/    provisioning datasource Grafana
-tests/            uji otomatis pytest
-docs/             PRD, arsitektur, kontrak data, dan bukti pengujian
-compose.yaml      Garage, Postgres, Iceberg REST, Prefect, Redpanda, Trino, MLflow, Metabase, Prometheus, Grafana
-prefect.yaml      definisi deployment Prefect
-Makefile          perintah harian
+src/eurogrid/       paket Python: klien sumber, writer Bronze, publikasi Iceberg, CLI
+flows/              flow Prefect untuk ingest harian
+scripts/            pembuat dokumen dan dek, smoke test Iceberg, backup dan restore
+infra/garage/       konfigurasi Garage
+infra/iceberg/      image Iceberg REST dengan driver JDBC Postgres
+infra/prefect/      Dockerfile dan entrypoint worker Prefect
+infra/trino/        konfigurasi Trino dan katalog Iceberg
+infra/mlflow/       image MLflow dengan driver Postgres
+infra/prometheus/   target scrape Prometheus
+infra/grafana/      provisioning datasource Grafana
+tests/              uji otomatis pytest
+docs/               PRD, arsitektur, kontrak data, dan bukti pengujian
+compose.yaml        seluruh stack: storage, katalog, orkestrasi, serving, monitoring
+prefect.yaml        definisi deployment Prefect
+Makefile            perintah harian
 ```
 
 ## Prasyarat
@@ -58,20 +55,31 @@ Makefile          perintah harian
 - `uv` untuk lingkungan Python.
 - Python 3.12, dapat diunduh otomatis oleh `uv`.
 - Podman dan `podman-compose` untuk menjalankan container.
+- Token ENTSO-E aktif untuk dataset `actual_load`.
 
-## Mulai cepat
+## Instalasi
 
 ```bash
 cp .env.example .env      # isi kredensial, lihat bagian Menyiapkan Garage
 uv sync --extra dev
 make test
-make demo
-make publish-iceberg
-make sync-bronze
 ```
 
-`make demo` menarik data tujuh hari terakhir untuk empat sumber: `public_power`
-Jerman, `price` DE-LU, cuaca Berlin, dan beban aktual DE-LU dari ENTSO-E.
+## Menjalankan
+
+```bash
+make test              # uji otomatis
+make demo              # tarik tujuh hari terakhir untuk empat dataset
+make publish-iceberg   # terbitkan batch lokal sebagai tabel Iceberg
+make sync-bronze       # salin batch mentah ke bucket Garage
+make prefect-up        # server dan worker Prefect
+make redpanda-up       # broker stream dan topic
+make trino-up          # lapisan serving SQL
+make monitoring-up     # Prometheus dan Grafana
+```
+
+`make demo` menarik empat sumber: `public_power` Jerman, `price` DE-LU, cuaca
+Berlin, dan beban aktual DE-LU dari ENTSO-E.
 
 ## Stack container
 
@@ -92,23 +100,23 @@ podman-compose -p eurogrid up -d
 | Redpanda HTTP Proxy | http://localhost:8080 | Pandaproxy |
 | Trino | http://localhost:8081 | katalog `iceberg`, koneksi ke Iceberg REST |
 | MLflow | http://127.0.0.1:5000 | eksperimen Jim (F-11), backend Postgres dan volume `mlflow-data` |
-| Metabase | http://127.0.0.1:3000 | dashboard El (F-13), metadata di Postgres |
+| Metabase | http://localhost:3000 | dashboard El (F-13), metadata di Postgres |
 | Prometheus | http://127.0.0.1:9090 | metrik (F-14), dikonsumsi Grafana |
-| Grafana | http://127.0.0.1:3001 | tampilan metrik (F-14), admin dari `GRAFANA_ADMIN_PASSWORD` |
+| Grafana | http://localhost:3001 | tampilan metrik (F-14), admin dari `GRAFANA_ADMIN_PASSWORD` |
 
 Image `infra/iceberg/Dockerfile` menambahkan driver JDBC Postgres ke image
 `apache/iceberg-rest-fixture`. Tanpa driver itu katalog tidak dapat memakai
-Postgres. Build pertama membutuhkan akses internet untuk mengunduh driver dari
-Maven Central. Metadata katalog sekarang bertahan ketika container dibuat ulang,
-karena disimpan di volume `pg-data`.
+Postgres. Build pertama membutuhkan internet untuk mengunduh driver dari Maven
+Central. Metadata katalog bertahan ketika container dibuat ulang karena disimpan
+di volume `pg-data`.
 
 ## Menyiapkan Garage
 
 Bucket `eurogrid-bronze` dan `eurogrid-warehouse` sudah dibuat di cluster lokal.
-Bucket pertama menyimpan arsip batch mentah. Bucket kedua menyimpan tabel Iceberg.
-Kredensial akses dibuat sekali, lalu disimpan di `.env` sebagai
-`GARAGE_S3_ACCESS_KEY` dan `GARAGE_S3_SECRET_KEY`. Cara paling mudah lewat Web UI
-di http://127.0.0.1:3909 pada menu Keys, atau lewat CLI:
+Bucket pertama menyimpan arsip batch mentah, bucket kedua menyimpan tabel Iceberg.
+Kredensial dibuat sekali lalu disimpan di `.env` sebagai `GARAGE_S3_ACCESS_KEY`
+dan `GARAGE_S3_SECRET_KEY`. Cara termudah lewat Web UI di
+http://127.0.0.1:3909 pada menu Keys, atau lewat CLI:
 
 ```bash
 podman exec eurogrid-garage /garage status
@@ -122,24 +130,29 @@ acak sendiri sebelum cluster dipakai bersama.
 
 ## Prefect
 
-Deployment harian bernama `bronze-daily/production`:
+Deployment harian `bronze-daily/production`:
 
-- Flow: `flows/bronze_daily.py` dengan empat task ingest, yaitu `public_power`, `price`, `weather`, dan `entsoe_load`.
-- Setelah ingest, task `publish-bronze-iceberg` menulis ulang tabel Bronze di Garage.
-- Task `sync-bronze-garage` menyalin batch mentah ke bucket `eurogrid-bronze`.
-- Work pool: `eurogrid-pool` tipe process.
-- Jadwal: cron `0 5 * * *` zona `Europe/Berlin`.
-- Parameter bawaan: `days=7`, yaitu tujuh hari bergulir yang berakhir kemarin.
+- Flow `flows/bronze_daily.py` dengan empat task ingest: `public_power`, `price`,
+  `weather`, dan `entsoe_load`.
+- `publish-bronze-iceberg` menulis ulang tabel Bronze di Garage.
+- `sync-bronze-garage` menyalin batch mentah ke bucket `eurogrid-bronze`.
+- Work pool `eurogrid-pool` tipe process, jadwal cron `0 5 * * *` zona
+  `Europe/Berlin`, parameter bawaan `days=7`.
 
 ```bash
 make prefect-up       # nyalakan server dan worker
+make prefect-deploy   # daftarkan ulang deployment dari prefect.yaml
 make prefect-run      # jalankan satu run sekarang
 make prefect-logs     # ikuti log worker
-make prefect-deploy   # daftarkan ulang deployment dari prefect.yaml
 ```
 
 Hasil run terlihat di http://localhost:4200. Menjalankan rentang yang sama dua
-kali tidak membuat batch baru, karena nama batch ditentukan checksum isi respons.
+kali tidak membuat batch baru karena nama batch ditentukan checksum isi respons.
+Penjelasan tab UI ada di [`prefect.md`](prefect.md).
+
+Server Prefect menyimpan metadata di SQLite pada volume `prefect-data`. Worker
+berjalan sebagai root di dalam container rootless, jadi berkas di `data/` tetap
+dimiliki user host.
 
 ## Redpanda
 
@@ -160,8 +173,8 @@ Klien di dalam container memakai `redpanda:9092`, klien di host memakai
 
 ## Trino
 
-Trino 484 membaca tabel Iceberg langsung dari katalog REST di Iceberg REST
-server, dengan berkas data di Garage. Katalog bernama `iceberg`.
+Trino 484 membaca tabel Iceberg langsung dari katalog REST, berkas data di
+Garage. Katalog bernama `iceberg`.
 
 ```bash
 make trino-up
@@ -173,10 +186,10 @@ yang membaca kredensial Garage dari variabel lingkungan.
 
 ## Monitoring
 
-Prometheus dan Grafana dipakai untuk metrik dan log (F-14, milik Nad).
-Prometheus hanya punya target inti: dirinya, Redpanda, dan Grafana. Exporter
-aplikasi ditambahkan Nad di `infra/prometheus/prometheus.yml`. Grafana
-dapat datasource Prometheus secara otomatis lewat provisioning.
+Prometheus dan Grafana untuk metrik (F-14, milik Nad). Prometheus punya target
+inti: dirinya, Redpanda, dan Grafana. Exporter aplikasi ditambahkan Nad di
+`infra/prometheus/prometheus.yml`. Grafana mendapat datasource Prometheus
+otomatis lewat provisioning.
 
 ```bash
 make monitoring-up     # nyalakan Prometheus dan Grafana
@@ -184,14 +197,13 @@ make monitoring-up     # nyalakan Prometheus dan Grafana
 
 ## MLflow
 
-MLflow dipakai Jim untuk pelacakan eksperimen (F-11). Backend store di
-Postgres (database `mlflow`), artefak di volume `mlflow-data`. Jim cukup
-menunjuk `MLFLOW_TRACKING_URI=http://localhost:5000` (sudah ada di
-`.env.example`).
+MLflow dipakai Jim untuk pelacakan eksperimen (F-11). Backend store di Postgres
+(database `mlflow`), artefak di volume `mlflow-data`. Jim cukup menunjuk
+`MLFLOW_TRACKING_URI=http://localhost:5000` (sudah ada di `.env.example`).
 
 ## Backup dan restore
 
-F-17, milik Platform. Backup konsisten (penulis dihentikan sejenak) berisi
+F-17, milik Platform. Backup konsisten, penulis dihentikan sejenak, berisi
 `pg_dump` ketiga database (`iceberg`, `mlflow`, `metabase`) plus tar volume
 Garage dan artefak MLflow, ditulis ke `~/Backups/eurogrid/<timestamp UTC>`:
 
@@ -200,40 +212,30 @@ make backup                          # buat backup
 make restore-verify SRC=<dir>        # rehearsal restore non-destruktif
 ```
 
-`restore-verify` mengembalikan dump ke database scratch, membandingkan
-checksum tiap tabel, lalu mengekstrak tar dan membandingkannya dengan volume
-live. Volume dan database live tidak diubah. Restore penuh yang destruktif
-(`CONFIRM=yes scripts/restore.sh <dir> --force`) belum diuji; perlu
+`restore-verify` mengembalikan dump ke database scratch, membandingkan checksum
+tiap tabel, lalu mengekstrak tar dan membandingkannya dengan volume live. Volume
+dan database live tidak diubah. Restore penuh yang destruktif
+(`CONFIRM=yes scripts/restore.sh <dir> --force`) belum diuji dan perlu
 persetujuan eksplisit.
-
-Catatan tahap ini: server Prefect menyimpan metadata di SQLite pada volume
-`prefect-data`. Worker berjalan sebagai root di dalam container rootless, jadi
-berkas di `data/` tetap dimiliki user host.
 
 ## Iceberg
 
 Katalog Iceberg REST memakai `org.apache.iceberg.jdbc.JdbcCatalog` dengan
-metadata di Postgres dan berkas data di Garage. Smoke test menulis satu tabel
-kecil lalu membacanya kembali:
+metadata di Postgres dan berkas data di Garage.
 
 ```bash
 uv run --extra iceberg python scripts/iceberg_smoke.py
 uv run --extra iceberg python scripts/iceberg_smoke.py --drop
-```
-
-Batch Bronze lokal diterbitkan sebagai tabel Iceberg dengan perintah:
-
-```bash
 make publish-iceberg
 uv run --extra iceberg eurogrid publish-iceberg --table entsoe_actual_load
 ```
 
-Perintah ini menggabungkan semua batch lokal untuk satu dataset, membuang
+Perintah publish menggabungkan semua batch lokal untuk satu dataset, membuang
 duplikat berdasarkan `series_id` dan `timestamp_utc`, lalu menulis ulang tabel
 secara penuh. Hasilnya sama untuk masukan yang sama, jadi aman dijalankan
 berulang.
 
-## Ingest Bronze dari CLI
+## Ingest dari CLI
 
 ```bash
 uv run eurogrid ingest-energy-charts \
@@ -264,7 +266,7 @@ Batch mentah di mesin lokal dan salinannya di Garage:
 ```
 data/bronze/<source>/<dataset>/<partition>/batch_id=<checksum>/
   raw.json        respons asli, diserialisasi deterministik
-  data.parquet    tabel panjang: timestamp_utc, series_id, value, unit, dan metadata
+  data.parquet    tabel panjang: timestamp_utc, series_id, value, unit, metadata
   metadata.json   batch_id, checksum, parameter request, lisensi, jumlah baris
 
 s3://eurogrid-bronze/bronze/<source>/<dataset>/<partition>/batch_id=<checksum>/
@@ -308,7 +310,7 @@ PY
 Uji otomatis dijalankan dengan `make test`. Dokumen PDF dibangun ulang dengan
 `make docs`.
 
-## Sumber dan lisensi
+## Sumber Data
 
 | Sumber | Data | Lisensi | Catatan |
 | --- | --- | --- | --- |
@@ -327,14 +329,26 @@ Rincian kontrak data ada di [`docs/data-contract.md`](docs/data-contract.md).
 | [`docs/TEAM.pdf`](docs/TEAM.pdf) | Pembagian peran Ian, Nad, Jim, El, RACI, milestone |
 | [`docs/architecture.md`](docs/architecture.md) | Arsitektur target, ADR-01 sampai ADR-05, batas resource |
 | [`docs/data-contract.md`](docs/data-contract.md) | Kontrak data dan envelope stream |
+| [`prefect.md`](prefect.md) | Penjelasan tab UI Prefect dan perintah cepat |
 | [`docs/evidence/`](docs/evidence/) | Bukti pengujian dan hasil ingest |
+
+## Tim
+
+Kelompok 3: Ian (Platform dan Storage), Nad (Kualitas Data dan Governance),
+Jim (Analitik dan Machine Learning), El (Serving, Stream, dan Keamanan).
+Rincian peran, RACI, dan milestone ada di [`docs/TEAM.pdf`](docs/TEAM.pdf).
 
 ## Langkah berikutnya
 
 1. Silver: normalisasi, quality gate, dan tabel karantina.
 2. Gold: tiga mart, sepuluh query, lalu Trino sebagai lapisan serving.
 3. Stream producer dan consumer Redpanda dengan dedup dan DLQ. Broker dan topic
-   `eurogrid.events` serta `eurogrid.events.dlq` sudah jalan (increment 5),
-   yang belum ada adalah producer, consumer, dan dedup.
+   `eurogrid.events` serta `eurogrid.events.dlq` sudah jalan, yang belum ada
+   adalah producer, consumer, dan dedup.
 4. Model prakiraan beban, MLflow, API, dan dashboard.
-5. Observability, alert, keamanan, dan backup.
+5. Observability, alert, keamanan, dan backup lanjutan.
+
+## Lisensi
+
+Belum ada berkas `LICENSE` di repositori ini. Data pihak ketiga tetap tunduk
+pada lisensi masing-masing sumber di tabel di atas.
