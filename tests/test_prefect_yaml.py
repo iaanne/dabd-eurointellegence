@@ -7,12 +7,21 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_deployment_bronze_daily() -> None:
+def _deployments() -> list[dict]:
     konfigurasi = yaml.safe_load((ROOT / "prefect.yaml").read_text(encoding="utf-8"))
-    deployments = konfigurasi["deployments"]
+    return konfigurasi["deployments"]
 
-    assert len(deployments) == 1
-    deployment = deployments[0]
+
+def _cari(entrypoint: str) -> dict:
+    for deployment in _deployments():
+        if deployment["entrypoint"] == entrypoint:
+            return deployment
+    raise AssertionError(f"deployment {entrypoint} tidak ditemukan")
+
+
+def test_deployment_bronze_daily() -> None:
+    deployment = _cari("flows/bronze_daily.py:bronze_daily")
+
     assert deployment["name"] == "production"
     assert deployment["work_pool"]["name"] == "eurogrid-pool"
     assert deployment["parameters"]["days"] == 7
@@ -23,10 +32,41 @@ def test_deployment_bronze_daily() -> None:
     assert jadwal["active"] is True
 
 
-def test_entrypoint_deployment_ada() -> None:
-    konfigurasi = yaml.safe_load((ROOT / "prefect.yaml").read_text(encoding="utf-8"))
-    berkas, fungsi = konfigurasi["deployments"][0]["entrypoint"].split(":")
+def test_deployment_silver_daily() -> None:
+    deployment = _cari("flows/silver_daily.py:silver_daily")
 
-    path = ROOT / berkas
-    assert path.is_file()
-    assert f"def {fungsi}(" in path.read_text(encoding="utf-8")
+    assert deployment["name"] == "production"
+    assert deployment["work_pool"]["name"] == "eurogrid-pool"
+
+    jadwal = deployment["schedules"][0]
+    assert jadwal["cron"] == "30 5 * * *"
+    assert jadwal["timezone"] == "Europe/Berlin"
+    assert jadwal["active"] is True
+
+
+def test_entrypoint_deployment_ada() -> None:
+    for deployment in _deployments():
+        berkas, fungsi = deployment["entrypoint"].split(":")
+
+        path = ROOT / berkas
+        assert path.is_file()
+        assert f"def {fungsi}(" in path.read_text(encoding="utf-8")
+
+
+def test_parameter_deployment_ada_di_fungsi_flow() -> None:
+    """Parameter di prefect.yaml harus benar-benar diterima fungsi flow."""
+    import importlib.util
+    import inspect
+
+    for deployment in _deployments():
+        berkas, fungsi = deployment["entrypoint"].split(":")
+        spec = importlib.util.spec_from_file_location(
+            f"flow_{fungsi}", ROOT / berkas
+        )
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        flow = getattr(modul, fungsi)
+        parameter = inspect.signature(flow.fn).parameters
+
+        for nama in deployment.get("parameters") or {}:
+            assert nama in parameter, f"{fungsi} tidak menerima parameter {nama}"

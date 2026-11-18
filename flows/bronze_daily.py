@@ -7,6 +7,7 @@ yang terlambat tetap tertangkap dan ingest ulang tidak membuat batch ganda.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from prefect import flow, task
@@ -126,6 +127,45 @@ def sync_bronze_task() -> dict[str, Any]:
     return result
 
 
+@task(
+    name="emit-bronze-lineage",
+    retries=0,
+    timeout_seconds=120,
+    log_prints=True,
+)
+def emit_lineage_task(tables: list[str]) -> bool:
+    """Kirim event OpenLineage untuk tabel Bronze yang baru terbit."""
+    from eurogrid.lineage import emit_job, lineage_url
+
+    if not lineage_url():
+        print("Lineage dilewati: OPENLINEAGE_URL belum diisi.")
+        return False
+
+    inputs = []
+    for nama in tables:
+        if nama.startswith("entsoe_"):
+            inputs.append(f"source.entsoe-api.{nama.removeprefix('entsoe_')}")
+        elif nama.startswith("energy_charts_"):
+            inputs.append(f"source.energy-charts-api.{nama.removeprefix('energy_charts_')}")
+        elif nama.startswith("open_meteo_"):
+            inputs.append(f"source.open-meteo-api.{nama.removeprefix('open_meteo_')}")
+        else:
+            inputs.append(f"source.unknown.{nama}")
+
+    try:
+        dikirim = emit_job(
+            job_name="bronze.publish",
+            run_id=f"bronze-publish-{datetime.now(timezone.utc).isoformat()}",
+            inputs=inputs,
+            outputs=[f"bronze.{nama}" for nama in tables],
+        )
+    except Exception as exc:  # noqa: BLE001 - lineage tidak boleh mematikan flow
+        print(f"Lineage Bronze gagal: {exc}")
+        return False
+    print("Lineage Bronze terkirim." if dikirim else "Lineage Bronze tidak terkirim.")
+    return dikirim
+
+
 @flow(name="bronze-daily", log_prints=True)
 def bronze_daily(
     days: int = 7,
@@ -166,6 +206,7 @@ def bronze_daily(
 
     published = publish_bronze_task()
     archived = sync_bronze_task()
+    lineage = emit_lineage_task([item["table"].removeprefix("bronze.") for item in published])
 
     return {
         "window": {"start": window_start, "end": window_end},
@@ -174,6 +215,7 @@ def bronze_daily(
         "new_batches": created,
         "published_tables": published,
         "bronze_archive": archived,
+        "lineage": lineage,
     }
 
 

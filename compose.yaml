@@ -75,6 +75,7 @@ services:
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      OPENLINEAGE_URL: http://marquez:5000
     volumes:
       - ./data:/data:Z
       - ./flows:/app/flows:ro,Z
@@ -134,8 +135,59 @@ services:
       retries: 12
       start_period: 10s
 
+  marquez-db:
+    image: docker.io/library/postgres:16
+    container_name: eurogrid-marquez-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      POSTGRES_DB: marquez
+    volumes:
+      - marquez-db-data:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marquez -d marquez"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  marquez:
+    image: docker.io/marquezproject/marquez:0.51.1
+    container_name: eurogrid-marquez
+    restart: unless-stopped
+    depends_on:
+      marquez-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5001:5000"
+    environment:
+      MARQUEZ_PORT: "5000"
+      MARQUEZ_ADMIN_PORT: "5001"
+      POSTGRES_HOST: marquez-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: marquez
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      SEARCH_ENABLED: "false"
+
+  marquez-web:
+    image: docker.io/marquezproject/marquez-web:0.51.1
+    container_name: eurogrid-marquez-web
+    restart: unless-stopped
+    depends_on:
+      - marquez
+    ports:
+      - "127.0.0.1:3002:3000"
+    environment:
+      MARQUEZ_HOST: marquez
+      MARQUEZ_PORT: "5000"
+      WEB_PORT: "3000"
+
 volumes:
   garage-meta:
   garage-data:
   prefect-data:
   pg-data:
+  marquez-db-data:
+
