@@ -12,6 +12,12 @@ from typing import Any
 
 from prefect import flow, task
 
+from eurogrid.observability.logging import configure_json_logging, flow_run_id
+
+SERVICE = "eurogrid-silver-daily"
+
+configure_json_logging(SERVICE)
+
 RETRY_DELAYS = [30, 120]
 TASK_TIMEOUT_SECONDS = 1800
 
@@ -40,6 +46,7 @@ def validate_silver_task(datasets: list[str] | None = None) -> list[dict[str, An
 @flow(name="silver-daily", log_prints=True)
 def silver_daily(datasets: list[str] | None = None) -> dict[str, Any]:
     """Validasi Bronze menjadi Silver untuk dataset terpilih."""
+    configure_json_logging(SERVICE, run_id=flow_run_id())
     hasil = validate_silver_task(datasets=datasets)
     total_lolos = sum(item["rows_passed"] for item in hasil)
     total_gagal = sum(item["rows_failed"] for item in hasil)

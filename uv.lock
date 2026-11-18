@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -388,6 +388,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "pandas" },
+    { name = "prometheus-client" },
     { name = "pyarrow" },
     { name = "python-dotenv" },
     { name = "tenacity" },
@@ -416,6 +417,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "prefect", marker = "extra == 'prefect'", specifier = ">=3" },
+    { name = "prometheus-client", specifier = ">=0.20" },
     { name = "pyarrow", specifier = ">=16" },
     { name = "pyiceberg", marker = "extra == 'iceberg'", specifier = ">=0.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },

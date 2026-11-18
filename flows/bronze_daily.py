@@ -18,6 +18,11 @@ from eurogrid.ingest import (
     ingest_weather,
     resolve_window,
 )
+from eurogrid.observability.logging import configure_json_logging, flow_run_id
+
+SERVICE = "eurogrid-bronze-daily"
+
+configure_json_logging(SERVICE)
 
 RETRY_DELAYS = [30, 60, 180]
 TASK_TIMEOUT_SECONDS = 600
@@ -179,6 +184,7 @@ def bronze_daily(
     longitude: float = 13.41,
 ) -> dict[str, Any]:
     """Isi Bronze untuk public_power, price, cuaca, dan beban ENTSO-E."""
+    configure_json_logging(SERVICE, run_id=flow_run_id())
     if start and end:
         window_start, window_end = start, end
     else:

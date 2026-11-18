@@ -184,10 +184,83 @@ services:
       MARQUEZ_PORT: "5000"
       WEB_PORT: "3000"
 
+  metrics-exporter:
+    build:
+      context: .
+      dockerfile: infra/metrics/Dockerfile
+    image: localhost/eurogrid-metrics:latest
+    container_name: eurogrid-metrics
+    restart: unless-stopped
+    depends_on:
+      - iceberg-rest
+    env_file:
+      - .env
+    environment:
+      ICEBERG_CATALOG_URI: http://iceberg-rest:8181
+      ICEBERG_WAREHOUSE: s3://eurogrid-warehouse/
+      GARAGE_S3_ENDPOINT: http://garage:3900
+      GARAGE_S3_REGION: garage
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      PREFECT_API_URL: http://prefect-server:4200/api
+      METRICS_PORT: "9101"
+      METRICS_INTERVAL_SECONDS: "60"
+    ports:
+      - "127.0.0.1:9101:9101"
+
+  prometheus:
+    image: docker.io/prom/prometheus:v2.54.1
+    container_name: eurogrid-prometheus
+    restart: unless-stopped
+    depends_on:
+      - metrics-exporter
+      - node-exporter
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - prometheus-data:/prometheus
+
+  node-exporter:
+    image: docker.io/prom/node-exporter:v1.8.2
+    container_name: eurogrid-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    ports:
+      - "127.0.0.1:9100:9100"
+    volumes:
+      - /:/host:ro
+
+  grafana:
+    image: docker.io/grafana/grafana-oss:11.2.2
+    container_name: eurogrid-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-eurogrid}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro,Z
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro,Z
+      - grafana-data:/var/lib/grafana
+
 volumes:
   garage-meta:
   garage-data:
   prefect-data:
   pg-data:
   marquez-db-data:
+  prometheus-data:
+  grafana-data:
 

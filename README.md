@@ -81,6 +81,12 @@ podman-compose -p eurogrid up -d
 | Postgres | 127.0.0.1:5432 | backend katalog Iceberg, database `iceberg` |
 | Iceberg REST | http://localhost:8181 | katalog `eurogrid`, metadata di Postgres |
 | Prefect UI | http://localhost:4200 | server dan worker |
+| Marquez API | http://127.0.0.1:5001 | lineage OpenLineage |
+| Marquez Web | http://127.0.0.1:3002 | tampilan lineage |
+| Prometheus | http://127.0.0.1:9090 | metrik pipeline dan node |
+| Grafana | http://127.0.0.1:3000 | dashboard `EuroGrid Pipeline` |
+| Exporter metrik | http://127.0.0.1:9101/metrics | angka mentah yang dibaca Prometheus |
+| Node exporter | http://127.0.0.1:9100/metrics | CPU, memori, disk host |
 
 Image `infra/iceberg/Dockerfile` menambahkan driver JDBC Postgres ke image
 `apache/iceberg-rest-fixture`. Tanpa driver itu katalog tidak dapat memakai
