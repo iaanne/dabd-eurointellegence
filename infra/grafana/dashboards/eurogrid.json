@@ -109,7 +109,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(eurogrid_exporter_scrape_errors_total[10m]))",
+          "expr": "sum(increase(eurogrid_exporter_scrape_errors_total[10m])) or vector(0)",
           "legendFormat": "error"
         }
       ]
@@ -128,7 +128,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "eurogrid_table_rows",
+          "expr": "eurogrid_table_rows{table!~\".*_quality_report|.*_quarantine\"}",
           "legendFormat": "{{table}}"
         }
       ]

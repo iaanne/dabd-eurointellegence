@@ -176,13 +176,108 @@ def test_prometheus_menjaring_exporter_node_dan_diri_sendiri():
     assert jobs["eurogrid"]["static_configs"][0]["targets"] == ["metrics-exporter:9101"]
     assert jobs["node"]["static_configs"][0]["targets"] == ["node-exporter:9100"]
     assert "prometheus" in jobs
+    assert config["rule_files"] == ["/etc/prometheus/alerts.yml"]
+    assert config["alerting"]["alertmanagers"][0]["static_configs"][0]["targets"] == [
+        "alertmanager:9093"
+    ]
 
 
-def test_compose_menyambung_exporter_ke_prometheus():
+def _alert_rules() -> dict[str, dict]:
+    aturan = yaml.safe_load(
+        (ROOT / "infra" / "prometheus" / "alerts.yml").read_text(encoding="utf-8")
+    )
+    return {
+        rule["alert"]: rule
+        for grup in aturan["groups"]
+        for rule in grup["rules"]
+    }
+
+
+def test_tiga_alert_wajib_punya_ambang_jendela_pemilik_dan_kanal():
+    rules = _alert_rules()
+
+    for nama in ("EuroGridFlowRunFailed", "EuroGridDataStale", "EuroGridNodeCpuHigh"):
+        rule = rules[nama]
+        assert rule["expr"].strip(), nama
+        assert rule["for"], nama
+        assert rule["labels"]["severity"] in ("warning", "critical")
+        assert rule["labels"]["owner"], nama
+        assert rule["labels"]["channel"], nama
+        assert rule["annotations"]["summary"], nama
+
+
+def test_alert_job_gagal_melihat_status_run_terakhir():
+    rules = _alert_rules()
+
+    assert "FAILED" in rules["EuroGridFlowRunFailed"]["expr"]
+    assert rules["EuroGridFlowRunFailed"]["labels"]["severity"] == "critical"
+    assert "eurogrid_table_freshness_seconds" in rules["EuroGridDataStale"]["expr"]
+    assert "node_cpu_seconds_total" in rules["EuroGridNodeCpuHigh"]["expr"]
+
+
+def test_alertmanager_mengirim_ke_penerima_lokal():
+    config = yaml.safe_load(
+        (ROOT / "infra" / "alertmanager" / "alertmanager.yml").read_text(encoding="utf-8")
+    )
+    penerima = {item["name"]: item for item in config["receivers"]}
+
+    assert config["route"]["receiver"] == "webhook-lokal"
+    webhook = penerima["webhook-lokal"]["webhook_configs"][0]
+    assert webhook["url"] == "http://alert-sink:8080/alerts"
+    assert webhook["send_resolved"] is True
+
+
+def test_penerima_alert_menyimpan_satu_baris_per_alert(tmp_path, monkeypatch):
+    import importlib.util
+
+    jalur = ROOT / "infra" / "alerts" / "sink.py"
+    spesifikasi = importlib.util.spec_from_file_location("eurogrid_alert_sink", jalur)
+    assert spesifikasi and spesifikasi.loader
+    sink = importlib.util.module_from_spec(spesifikasi)
+    spesifikasi.loader.exec_module(sink)
+
+    berkas = tmp_path / "alerts.jsonl"
+    monkeypatch.setattr(sink, "OUTPUT", berkas)
+    payload = {
+        "status": "firing",
+        "alerts": [
+            {
+                "status": "firing",
+                "labels": {
+                    "alertname": "EuroGridFlowRunFailed",
+                    "severity": "critical",
+                    "owner": "nad",
+                    "channel": "webhook-lokal",
+                },
+                "annotations": {"summary": "flow gagal"},
+                "startsAt": "2026-11-19T01:00:00Z",
+                "endsAt": "0001-01-01T00:00:00Z",
+                "fingerprint": "abc",
+            }
+        ],
+    }
+
+    tersimpan = sink.simpan(payload)
+
+    assert len(tersimpan) == 1
+    baris = berkas.read_text(encoding="utf-8").splitlines()
+    assert len(baris) == 1
+    assert json.loads(baris[0])["alertname"] == "EuroGridFlowRunFailed"
+    assert sink.terakhir()[0]["severity"] == "critical"
+
+
+def test_compose_menyertakan_pemantauan_dan_alert():
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
     services = compose["services"]
 
-    for nama in ("metrics-exporter", "prometheus", "node-exporter", "grafana"):
+    for nama in (
+        "metrics-exporter",
+        "prometheus",
+        "node-exporter",
+        "grafana",
+        "alertmanager",
+        "alert-sink",
+    ):
         assert nama in services, nama
-    assert "9101:9101" in services["metrics-exporter"]["ports"][-1]
-    assert services["grafana"]["environment"]["GF_AUTH_ANONYMOUS_ENABLED"] == "true"
+    assert "9093:9093" in services["alertmanager"]["ports"][-1]
+    assert "8080:8080" in services["alert-sink"]["ports"][-1]

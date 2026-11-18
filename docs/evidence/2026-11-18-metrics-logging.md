@@ -78,10 +78,57 @@ Buka http://127.0.0.1:3000 lalu pilih dashboard `EuroGrid Pipeline`.
 
 ## Batasan
 
-- Belum ada aturan alert. Itu F-15 dan memakai metrik di atas sebagai sumber.
 - `node-exporter` memakai mount `/:/host:ro` tanpa propagasi `rslave`, karena Docker
   Desktop di WSL2 menolak `rslave` dengan galat "not a shared or slave mount".
 - Dashboard memakai data yang tersedia saat ini; panel karantina akan mendatar di nol
   selama data Bronze tetap bersih.
 - Metrik jumlah baris memakai ringkasan snapshot Iceberg. Bila ringkasan tidak memuat
   `total-records`, exporter menghitung langsung dengan memindai tabel.
+
+## F-15: tiga alert dan buktinya
+
+Aturan ada di `infra/prometheus/alerts.yml`, penerima di `infra/alertmanager/alertmanager.yml`,
+dan penampung riwayat di `infra/alerts/sink.py`. Kanal notifikasi lokal berupa webhook,
+karena proyek belum punya email atau Slack.
+
+| Alert | Ambang | Jendela | Severity | Pemilik | Kanal |
+| --- | --- | --- | --- | --- | --- |
+| `EuroGridFlowRunFailed` | status run terakhir `FAILED`/`CRASHED` | 1 menit | critical | nad | webhook lokal |
+| `EuroGridDataStale` | snapshot Bronze lebih tua dari 172.800 detik (48 jam) | 30 menit | warning | nad | webhook lokal |
+| `EuroGridNodeCpuHigh` | CPU host di atas 85% | 5 menit | warning | nad | webhook lokal |
+| `EuroGridNodeMemoryLow` | memori tersedia di bawah 10% | 5 menit | critical | nad | webhook lokal |
+| `EuroGridExporterDown` | `up{job="eurogrid"} == 0` | 2 menit | warning | nad | webhook lokal |
+
+Dua alert terakhir adalah tambahan: satu untuk resource kritis yang lebih spesifik
+(memori), satu untuk keandalan pengukuran itu sendiri.
+
+`promtool check rules` menerima berkas aturan (5 rules) dan `amtool check-config`
+menerima konfigurasi Alertmanager.
+
+### Bukti alert menyala lalu pulih
+
+`metrics-exporter` dihentikan pada 17:10:39 UTC. Hasilnya:
+
+```text
+17:11:29  Prometheus : EuroGridExporterDown pending
+17:13:29  Prometheus : EuroGridExporterDown firing
+17:13:39  Alertmgr   : EuroGridExporterDown active
+17:13:39  Sink       : firing  EuroGridExporterDown [warning/nad/webhook-lokal]
+17:15:39  Sink       : resolved EuroGridExporterDown
+```
+
+Setelah exporter dinyalakan lagi, Prometheus menandai alert selesai dan Alertmanager
+mengirim event `resolved` karena `send_resolved: true`. Baris-baris itu tersimpan di
+`/data/alerts.jsonl` dalam volume `alerts-data` dan bisa dibaca lewat
+http://127.0.0.1:8080/alerts.
+
+### Pengecekan visual dashboard
+
+Dashboard dibuka di browser pada http://127.0.0.1:3000/d/eurogrid-pipeline dan
+diperiksa panel demi panel. Nilai yang terlihat saat pemeriksaan: kualitas gate
+diblokir 0, umur sukses terakhir 31,9 menit, error scrape 0, tabel Bronze 8.640-181.524
+baris, karantina 0, kesegaran tabel naik dari 47 menit, status run terakhir per flow,
+CPU dan memori host bergerak. Dua panel sempat diperbaiki setelah terlihat di layar:
+panel error menampilkan "No data" (diganti dengan `... or vector(0)`) dan legenda
+tabel terlalu ramai karena ikut menampilkan tabel bantuan (disaring dengan
+`table!~".*_quality_report|.*_quarantine"`).

@@ -87,6 +87,8 @@ podman-compose -p eurogrid up -d
 | Grafana | http://127.0.0.1:3000 | dashboard `EuroGrid Pipeline` |
 | Exporter metrik | http://127.0.0.1:9101/metrics | angka mentah yang dibaca Prometheus |
 | Node exporter | http://127.0.0.1:9100/metrics | CPU, memori, disk host |
+| Alertmanager | http://127.0.0.1:9093 | status alert yang sedang aktif |
+| Penerima alert | http://127.0.0.1:8080/alerts | riwayat alert lokal (JSON) |
 
 Image `infra/iceberg/Dockerfile` menambahkan driver JDBC Postgres ke image
 `apache/iceberg-rest-fixture`. Tanpa driver itu katalog tidak dapat memakai

@@ -222,7 +222,37 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro,Z
       - prometheus-data:/prometheus
+
+  alertmanager:
+    image: docker.io/prom/alertmanager:v0.27.0
+    container_name: eurogrid-alertmanager
+    restart: unless-stopped
+    depends_on:
+      - alert-sink
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,Z
+      - alertmanager-data:/alertmanager
+
+  alert-sink:
+    image: docker.io/library/python:3.12-slim
+    container_name: eurogrid-alert-sink
+    restart: unless-stopped
+    command: ["python", "/srv/sink.py"]
+    environment:
+      ALERT_SINK_FILE: /data/alerts.jsonl
+      ALERT_SINK_PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./infra/alerts/sink.py:/srv/sink.py:ro,Z
+      - alerts-data:/data
 
   node-exporter:
     image: docker.io/prom/node-exporter:v1.8.2
@@ -263,4 +293,6 @@ volumes:
   marquez-db-data:
   prometheus-data:
   grafana-data:
+  alertmanager-data:
+  alerts-data:
 
