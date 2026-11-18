@@ -20,3 +20,19 @@ deployments:
       - cron: "0 5 * * *"
         timezone: Europe/Berlin
         active: true
+
+  - name: production
+    description: Validasi Bronze menjadi Silver, karantina, dan laporan mutu.
+    entrypoint: flows/silver_daily.py:silver_daily
+    tags:
+      - silver
+      - daily
+    parameters:
+      datasets: null
+    work_pool:
+      name: eurogrid-pool
+    schedules:
+      - cron: "30 5 * * *"
+        timezone: Europe/Berlin
+        active: true
+
