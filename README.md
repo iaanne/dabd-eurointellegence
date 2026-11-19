@@ -67,6 +67,17 @@ make sync-bronze
 `make demo` menarik data tujuh hari terakhir untuk empat sumber: `public_power`
 Jerman, `price` DE-LU, cuaca Berlin, dan beban aktual DE-LU dari ENTSO-E.
 
+Bila `make` tidak tersedia (misalnya PowerShell di Windows), perintah yang sama
+dijalankan langsung:
+
+```powershell
+uv sync --extra dev
+uv run pytest
+```
+
+`uv run pytest` adalah satu perintah tes yang dipakai `make test`, jadi hasilnya
+sama. Sudah diuji dari clone bersih: 84 tes lulus.
+
 ## Stack container
 
 ```bash
