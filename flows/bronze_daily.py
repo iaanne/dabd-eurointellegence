@@ -171,6 +171,39 @@ def emit_lineage_task(tables: list[str]) -> bool:
     return dikirim
 
 
+@task(
+    name="trigger-silver",
+    retries=2,
+    retry_delay_seconds=RETRY_DELAYS,
+    timeout_seconds=120,
+    log_prints=True,
+)
+def trigger_silver_task(bronze_run_id: str | None) -> dict[str, Any]:
+    """Picu run Silver setelah Bronze selesai, tanpa menunggu hasilnya.
+
+    Cron Silver dihapus karena menjadwalkan beberapa puluh menit setelah Bronze
+    hanya asumsi. Bila pemicuan gagal, Bronze tetap selesai dan alasannya
+    dicatat di keluaran flow.
+    """
+    from prefect.deployments import run_deployment
+
+    try:
+        flow_run = run_deployment(
+            name="silver-daily/production",
+            parameters={},
+            timeout=0,
+            as_subflow=False,
+            tags=["dipicu-bronze"],
+            idempotency_key=f"silver-after-bronze-{bronze_run_id or 'manual'}",
+        )
+    except Exception as exc:  # noqa: BLE001 - pemicuan gagal tidak boleh menggagalkan Bronze
+        print(f"Gagal memicu Silver: {exc}")
+        return {"triggered": False, "error": str(exc)}
+
+    print(f"Silver dipicu setelah Bronze: {flow_run.id}")
+    return {"triggered": True, "flow_run_id": str(flow_run.id)}
+
+
 @flow(name="bronze-daily", log_prints=True)
 def bronze_daily(
     days: int = 7,
@@ -213,6 +246,7 @@ def bronze_daily(
     published = publish_bronze_task()
     archived = sync_bronze_task()
     lineage = emit_lineage_task([item["table"].removeprefix("bronze.") for item in published])
+    silver = trigger_silver_task(flow_run_id())
 
     return {
         "window": {"start": window_start, "end": window_end},
@@ -222,6 +256,7 @@ def bronze_daily(
         "published_tables": published,
         "bronze_archive": archived,
         "lineage": lineage,
+        "silver_trigger": silver,
     }
 
 

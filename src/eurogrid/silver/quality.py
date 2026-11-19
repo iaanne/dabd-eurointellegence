@@ -19,6 +19,7 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
+from ..revisions import beyond_available_until, collapse_revisions
 from .rules import DatasetRule, SeriesRule, ValueBounds
 
 
@@ -55,7 +56,7 @@ def validate_frame(
 
     work = frame.copy()
     rows_in = len(work)
-    duplicates_dropped, work = _drop_duplicate_keys(work, rule)
+    duplicates_dropped, work = collapse_revisions(work, rule.key)
 
     violations: dict[str, pd.Series] = {}
     warnings: dict[str, pd.Series] = {}
@@ -88,6 +89,9 @@ def validate_frame(
         add(violations, "timestamp_tanpa_zona", naive)
     else:
         parsed_ts = pd.Series(pd.NaT, index=work.index)
+
+    # 2b. Revisi sumber: data setelah ``available_until`` belum final.
+    add(violations, "melewati_available_until", beyond_available_until(work))
 
     # 3. Nilai: numerik dan berhingga.
     if "value" in work.columns:
@@ -188,6 +192,7 @@ def validate_frame(
         "rows_passed": int(len(passed)),
         "rows_failed": rows_failed,
         "duplicates_dropped": duplicates_dropped,
+        "revision_not_available": int(beyond_available_until(work).sum()),
         "failure_rate": round(failure_rate, 6),
         "max_failure_rate": rule.max_failure_rate,
         "gap_count": gap_count,
@@ -201,26 +206,6 @@ def validate_frame(
         "rules_note": rule.notes,
     }
     return QualityResult(passed=passed, quarantine=quarantine, report=report)
-
-
-def _drop_duplicate_keys(
-    frame: pd.DataFrame, rule: DatasetRule
-) -> tuple[int, pd.DataFrame]:
-    """Buang duplikat pada kunci bisnis, simpan baris terakhir.
-
-    Baris yang kuncinya belum lengkap tidak dibuang di sini supaya tetap masuk
-    karantina dengan alasan kolom wajib kosong.
-    """
-    key_columns = [column for column in rule.key if column in frame.columns]
-    if not key_columns or frame.empty:
-        return 0, frame
-
-    lengkap = frame[key_columns].notna().all(axis=1)
-    utama = frame.loc[lengkap]
-    sisa = frame.loc[~lengkap]
-    unik = utama.drop_duplicates(subset=key_columns, keep="last")
-    gabungan = pd.concat([unik, sisa])
-    return int(len(frame) - len(gabungan)), gabungan
 
 
 def _blank_mask(column: pd.Series) -> pd.Series:

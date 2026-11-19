@@ -7,7 +7,9 @@ pull: null
 
 deployments:
   - name: production
-    description: Isi Bronze harian dari Energy-Charts dan Open-Meteo.
+    description: >-
+      Isi Bronze harian dari Energy-Charts, Open-Meteo, dan ENTSO-E, lalu picu
+      run Silver setelah tabel Bronze terbit.
     entrypoint: flows/bronze_daily.py:bronze_daily
     tags:
       - bronze
@@ -22,7 +24,9 @@ deployments:
         active: true
 
   - name: production
-    description: Validasi Bronze menjadi Silver, karantina, dan laporan mutu.
+    description: >-
+      Validasi Bronze menjadi Silver, karantina, dan laporan mutu. Tidak punya
+      jadwal sendiri: dipicu oleh flow Bronze setelah tabel Bronze terbit.
     entrypoint: flows/silver_daily.py:silver_daily
     tags:
       - silver
@@ -31,8 +35,4 @@ deployments:
       datasets: null
     work_pool:
       name: eurogrid-pool
-    schedules:
-      - cron: "30 5 * * *"
-        timezone: Europe/Berlin
-        active: true
 

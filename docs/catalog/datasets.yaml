@@ -68,7 +68,7 @@ datasets:
     grain: 15 menit per bidding zone
     business_key: [bidding_zone, series_id, timestamp_utc]
     retention_days: 365
-    refresh: "30 5 * * * Europe/Berlin"
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
     license: ENTSO-E Transparency Platform
     quality_gate: ambang gagal 1% baris atau 1% interval hilang
 
@@ -80,7 +80,7 @@ datasets:
     grain: 15 menit per bidding zone
     business_key: [bidding_zone, series_id, timestamp_utc]
     retention_days: 365
-    refresh: "30 5 * * * Europe/Berlin"
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
     license: CC BY 4.0 (Bundesnetzagentur dan SMARD)
     quality_gate: ambang gagal 1% baris atau 1% interval hilang
 
@@ -92,7 +92,7 @@ datasets:
     grain: 15 menit per jenis pembangkitan
     business_key: [country, series_id, timestamp_utc]
     retention_days: 365
-    refresh: "30 5 * * * Europe/Berlin"
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
     license: CC BY 4.0 energy-charts.info
     quality_gate: ambang gagal 1% baris atau 1% interval hilang
 
@@ -104,6 +104,6 @@ datasets:
     grain: 1 jam per variabel cuaca
     business_key: [location, variable, timestamp_utc]
     retention_days: 365
-    refresh: "30 5 * * * Europe/Berlin"
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
     license: CC BY 4.0 Open-Meteo.com
     quality_gate: ambang gagal 1% baris atau 1% interval hilang

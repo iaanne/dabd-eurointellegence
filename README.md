@@ -121,8 +121,11 @@ Deployment harian bernama `bronze-daily/production`:
 - Flow: `flows/bronze_daily.py` dengan empat task ingest, yaitu `public_power`, `price`, `weather`, dan `entsoe_load`.
 - Setelah ingest, task `publish-bronze-iceberg` menulis ulang tabel Bronze di Garage.
 - Task `sync-bronze-garage` menyalin batch mentah ke bucket `eurogrid-bronze`.
+- Task `trigger-silver` memicu run `silver-daily/production` tepat setelah tabel
+  Bronze terbit, tanpa menunggu hasilnya.
+- Deployment `silver-daily/production` sengaja tidak punya cron sendiri.
 - Work pool: `eurogrid-pool` tipe process.
-- Jadwal: cron `0 5 * * *` zona `Europe/Berlin`.
+- Jadwal Bronze: cron `0 5 * * *` zona `Europe/Berlin`.
 - Parameter bawaan: `days=7`, yaitu tujuh hari bergulir yang berakhir kemarin.
 
 ```bash

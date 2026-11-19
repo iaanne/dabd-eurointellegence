@@ -32,16 +32,21 @@ def test_deployment_bronze_daily() -> None:
     assert jadwal["active"] is True
 
 
-def test_deployment_silver_daily() -> None:
+def test_deployment_silver_daily_tanpa_jadwal_sendiri() -> None:
+    """Silver dipicu Bronze, jadi tidak punya cron sendiri."""
     deployment = _cari("flows/silver_daily.py:silver_daily")
 
     assert deployment["name"] == "production"
     assert deployment["work_pool"]["name"] == "eurogrid-pool"
+    assert not deployment.get("schedules")
 
-    jadwal = deployment["schedules"][0]
-    assert jadwal["cron"] == "30 5 * * *"
-    assert jadwal["timezone"] == "Europe/Berlin"
-    assert jadwal["active"] is True
+
+def test_bronze_memicu_silver_setelah_terbit() -> None:
+    isi = (ROOT / "flows" / "bronze_daily.py").read_text(encoding="utf-8")
+
+    assert "silver-daily/production" in isi
+    assert "trigger_silver_task" in isi
+    assert "timeout=0" in isi
 
 
 def test_entrypoint_deployment_ada() -> None:
