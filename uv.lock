@@ -396,6 +396,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "prefect" },
     { name = "pytest" },
     { name = "respx" },
 ]
@@ -416,6 +417,7 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pandas", specifier = ">=2.2" },
+    { name = "prefect", marker = "extra == 'dev'", specifier = ">=3" },
     { name = "prefect", marker = "extra == 'prefect'", specifier = ">=3" },
     { name = "prometheus-client", specifier = ">=0.20" },
     { name = "pyarrow", specifier = ">=16" },
