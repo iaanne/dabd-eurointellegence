@@ -16,6 +16,8 @@ menerbitkannya sebagai tabel Iceberg di Garage S3, lalu menyajikannya lewat Trin
 | 4 | ENTSO-E, katalog Iceberg di Postgres, tabel Bronze di Garage, arsip batch mentah | [`docs/evidence/2026-11-10-entsoe-postgres-iceberg.md`](docs/evidence/2026-11-10-entsoe-postgres-iceberg.md) |
 | 5 | Redpanda broker dan topic, Trino membaca Bronze dari Garage | [`docs/evidence/2026-11-13-redpanda-trino.md`](docs/evidence/2026-11-13-redpanda-trino.md) |
 | 6 | Pelengkap F-01 (MLflow, Metabase, Prometheus, Grafana) dan F-17 (backup, rehearsal restore, uji restart) | [`docs/evidence/2026-11-14-platform-f01-f17.md`](docs/evidence/2026-11-14-platform-f01-f17.md) |
+| 7 | Silver quality gate, revisi sumber, katalog dan lineage, metrik dan log, lima alert (F-08, F-09, F-14, F-15) | [`docs/evidence/2026-11-18-silver-quality-gate.md`](docs/evidence/2026-11-18-silver-quality-gate.md) |
+| 8 | Streaming ENTSO-E ke Redpanda, consumer menulis parquet ke Bronze (F-04, F-05) | [`docs/evidence/2026-11-13-redpanda-trino.md`](docs/evidence/2026-11-13-redpanda-trino.md) |
 
 Tabel Bronze di namespace `bronze`:
 
@@ -26,7 +28,8 @@ Tabel Bronze di namespace `bronze`:
 | `bronze.open_meteo_weather_hourly` | Cuaca Berlin per jam | 1.056 |
 | `bronze.entsoe_actual_load` | Beban aktual DE-LU dari ENTSO-E | 960 |
 
-Jumlah baris bergerak mengikuti rentang yang di-ingest. Silver dan Gold belum ada.
+Jumlah baris bergerak mengikuti rentang yang di-ingest. Silver tersedia lewat
+quality gate di `flows/silver_daily.py`; Gold belum ada.
 Rencana lengkap ada di [`docs/PRD.md`](docs/PRD.md) dan
 [`docs/architecture.md`](docs/architecture.md).
 
@@ -181,6 +184,7 @@ service `redpanda-topics` setiap kali stack dinyalakan:
 
 - `eurogrid.events`, 3 partisi, replica 1
 - `eurogrid.events.dlq`, tempat event rusak atau terlambat
+- `entsoe.actual_load`, dipakai streaming beban aktual
 
 ```bash
 make redpanda-up       # nyalakan broker dan buat topic
@@ -190,6 +194,29 @@ make redpanda-list     # daftar topic
 
 Klien di dalam container memakai `redpanda:9092`, klien di host memakai
 `localhost:9092`.
+
+## Streaming
+
+Producer dan consumer berjalan sebagai service terpisah dan memakai broker
+Redpanda yang sama dengan blueprint di atas. Producer menarik beban aktual
+ENTSO-E tiap `ENTSOE_POLLING_INTERVAL` detik, consumer menulis parquet ke
+`data/bronze/entsoe_actual_load/`.
+
+```bash
+make streaming-up      # nyalakan Redpanda, topik, producer, consumer
+make streaming-logs    # ikuti log keduanya
+make streaming-down    # hentikan producer dan consumer
+```
+
+Variabel lingkungan yang dibaca (`REDPANDA_BROKERS`, `REDPANDA_STREAM_TOPIC`,
+`REDPANDA_GROUP_ID`) sudah diisi di `compose.yaml`, nilai bawaannya ada di
+`.env.example`. Smoke test broker:
+
+```bash
+uv run --extra streaming python scripts/redpanda_smoke.py
+```
+
+Redpanda memakai protokol Kafka, jadi kliennya tetap pustaka `kafka-python-ng`.
 
 ## Trino
 

@@ -1,0 +1,24 @@
+datasets:
+  actual_load:
+    enabled: true
+    topic: entsoe.actual_load
+    polling_interval: 900
+    overlap_hours: 2
+
+  actual_generation:
+    enabled: false
+    topic: entsoe.actual_generation
+    polling_interval: 900
+    overlap_hours: 2
+
+  day_ahead_prices:
+    enabled: false
+    topic: entsoe.day_ahead_prices
+    polling_interval: 3600
+    overlap_hours: 24
+
+  cross_border_flows:
+    enabled: false
+    topic: entsoe.cross_border
+    polling_interval: 900
+    overlap_hours: 2

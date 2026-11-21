@@ -1,6 +1,7 @@
 START ?= $(shell date -d '7 days ago' +%F)
 END ?= $(shell date -d 'yesterday' +%F)
 
+.PHONY: setup test demo demo-power demo-price demo-weather demo-entsoe list show docs clean prefect-up prefect-down prefect-deploy prefect-run prefect-logs publish-iceberg sync-bronze redpanda-up redpanda-topics redpanda-list trino-up trino-query mlflow-up metabase-up monitoring-up monitoring-down backup restore-verify streaming-up streaming-down streaming-logs
 .PHONY: setup test demo demo-power demo-price demo-weather demo-entsoe list show docs clean prefect-up prefect-down prefect-deploy prefect-run prefect-logs publish-iceberg sync-bronze redpanda-up redpanda-topics redpanda-list trino-up trino-query mlflow-up metabase-up monitoring-up monitoring-down backup restore-test
 
 setup:
@@ -56,11 +57,19 @@ prefect-run:
 prefect-logs:
 	podman logs -f eurogrid-prefect-worker
 
+streaming-up:
+	podman-compose -p eurogrid up -d --build redpanda redpanda-topics streaming-producer streaming-consumer
+
+streaming-down:
+	podman-compose -p eurogrid stop streaming-producer streaming-consumer
+
+streaming-logs:
+	podman logs -f eurogrid-streaming-producer eurogrid-streaming-consumer
 redpanda-up:
 	podman-compose -p eurogrid up -d redpanda redpanda-topics
 
 redpanda-topics:
-	podman exec eurogrid-redpanda rpk topic create -X brokers=localhost:9092 --if-not-exists --partitions 3 --replicas 1 eurogrid.events eurogrid.events.dlq
+	podman exec eurogrid-redpanda rpk topic create -X brokers=localhost:9092 --if-not-exists --partitions 3 --replicas 1 eurogrid.events eurogrid.events.dlq entsoe.actual_load
 
 redpanda-list:
 	podman exec eurogrid-redpanda rpk topic list -X brokers=localhost:9092

@@ -135,7 +135,7 @@ Jika salah satu langkah gagal dan tidak dapat diperbaiki dalam satu hari, MinIO 
 | Aspek | Keputusan |
 | --- | --- |
 | Batch | Prefect 3, Python task, retry 3 kali |
-| Stream | Consumer Python dengan `confluent-kafka` |
+| Stream | Consumer Python dengan `kafka-python-ng` ke Redpanda |
 | Query | Trino |
 | Batas resource | Lihat tabel pada bagian 2 |
 | Penjadwalan | Harian 04.00 UTC, backfill manual |
@@ -257,7 +257,7 @@ Setiap langkah harus punya health check. Deploy dianggap berhasil bila semua ser
 | Pertanyaan | Tenggat | Pemilik |
 | --- | --- | --- |
 | Katalog Iceberg memakai REST atau Nessie | Sebelum M1 | Ian |
-| Redpanda atau Kafka KRaft | Sebelum M4 | El |
+| ~~Redpanda atau Kafka KRaft~~ (diputuskan: Redpanda) | Selesai | El |
 | Marquez atau OpenMetadata | Sebelum M2 | Nad |
 | Metabase atau Superset | Sebelum M5 | El |
 | Batas memori final per service | Setelah benchmark M1 | Ian |

@@ -24,6 +24,10 @@ iceberg = [
 prefect = [
   "prefect>=3",
 ]
+streaming = [
+  "kafka-python-ng>=2.2.2",
+  "pyspark>=4.0.0,<5",
+]
 dev = [
   # Tes membaca flows/, jadi Prefect harus ada di lingkungan pengembangan.
   "prefect>=3",
@@ -43,6 +47,8 @@ addopts = "-q"
 
 [dependency-groups]
 dev = [
+    "pytest>=9.2.0",
+    "pytest-mock>=3.17.0",
     "python-pptx>=1.0.2",
     "pyyaml>=6",
 ]

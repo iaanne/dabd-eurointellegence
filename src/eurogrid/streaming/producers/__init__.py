@@ -1,0 +1,1 @@
+"""Producer Redpanda untuk EuroGrid."""

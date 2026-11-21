@@ -59,7 +59,8 @@ services:
     build:
       context: .
       dockerfile: infra/prefect/Dockerfile
-    image: localhost/eurogrid-prefect-worker:latest
+    image: eurogrid-prefect-worker:latest
+    pull_policy: build
     container_name: eurogrid-prefect-worker
     restart: unless-stopped
     depends_on:
@@ -90,7 +91,8 @@ services:
     build:
       context: .
       dockerfile: infra/iceberg/Dockerfile
-    image: localhost/eurogrid-iceberg-rest:latest
+    image: eurogrid-iceberg-rest:latest
+    pull_policy: build
     container_name: eurogrid-iceberg-rest
     restart: unless-stopped
     depends_on:
@@ -139,6 +141,51 @@ services:
       retries: 12
       start_period: 10s
 
+
+  streaming-producer:
+    build:
+      context: .
+      dockerfile: infra/streaming/Dockerfile
+    image: eurogrid-streaming:latest
+    pull_policy: build
+    container_name: eurogrid-streaming-producer
+    restart: unless-stopped
+    depends_on:
+      - redpanda
+      - redpanda-topics
+    env_file:
+      - .env
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      ENTSOE_POLLING_INTERVAL: "300"
+      EUROGRID_DATA_DIR: /data
+    command: ["python", "-m", "eurogrid.streaming.producers.entsoe_producer"]
+    volumes:
+      - ./src:/app/src:ro,Z
+
+  streaming-consumer:
+    build:
+      context: .
+      dockerfile: infra/streaming/Dockerfile
+    image: eurogrid-streaming:latest
+    pull_policy: build
+    container_name: eurogrid-streaming-consumer
+    restart: unless-stopped
+    depends_on:
+      - redpanda
+      - redpanda-topics
+    env_file:
+      - .env
+    environment:
+      REDPANDA_BROKERS: redpanda:9092
+      REDPANDA_STREAM_TOPIC: entsoe.actual_load
+      ENTSOE_BRONZE_PATH: /data/bronze/entsoe_actual_load
+      ENTSOE_CHECKPOINT_PATH: /data/checkpoints/entsoe_actual_load
+    command: ["python", "-m", "eurogrid.streaming.consumers.entsoe_consumer"]
+    volumes:
+      - ./data:/data:Z
+      - ./src:/app/src:ro,Z
+
   redpanda:
     image: docker.io/redpandadata/redpanda:v26.2.7
     container_name: eurogrid-redpanda
@@ -182,7 +229,7 @@ services:
           -X brokers=redpanda:9092 \
           --partitions 3 --replicas 1 \
           --if-not-exists \
-          eurogrid.events eurogrid.events.dlq; do
+          eurogrid.events eurogrid.events.dlq entsoe.actual_load; do
           n=$$((n+1))
           if [ "$${n}" -ge 30 ]; then
             echo "redpanda belum siap, topic tidak dibuat" >&2
@@ -436,6 +483,7 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+
 
 volumes:
   garage-meta:
