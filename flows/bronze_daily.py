@@ -7,6 +7,7 @@ yang terlambat tetap tertangkap dan ingest ulang tidak membuat batch ganda.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from prefect import flow, task
@@ -17,6 +18,11 @@ from eurogrid.ingest import (
     ingest_weather,
     resolve_window,
 )
+from eurogrid.observability.logging import configure_json_logging, flow_run_id
+
+SERVICE = "eurogrid-bronze-daily"
+
+configure_json_logging(SERVICE)
 
 RETRY_DELAYS = [30, 60, 180]
 TASK_TIMEOUT_SECONDS = 600
@@ -126,6 +132,78 @@ def sync_bronze_task() -> dict[str, Any]:
     return result
 
 
+@task(
+    name="emit-bronze-lineage",
+    retries=0,
+    timeout_seconds=120,
+    log_prints=True,
+)
+def emit_lineage_task(tables: list[str]) -> bool:
+    """Kirim event OpenLineage untuk tabel Bronze yang baru terbit."""
+    from eurogrid.lineage import emit_job, lineage_url
+
+    if not lineage_url():
+        print("Lineage dilewati: OPENLINEAGE_URL belum diisi.")
+        return False
+
+    inputs = []
+    for nama in tables:
+        if nama.startswith("entsoe_"):
+            inputs.append(f"source.entsoe-api.{nama.removeprefix('entsoe_')}")
+        elif nama.startswith("energy_charts_"):
+            inputs.append(f"source.energy-charts-api.{nama.removeprefix('energy_charts_')}")
+        elif nama.startswith("open_meteo_"):
+            inputs.append(f"source.open-meteo-api.{nama.removeprefix('open_meteo_')}")
+        else:
+            inputs.append(f"source.unknown.{nama}")
+
+    try:
+        dikirim = emit_job(
+            job_name="bronze.publish",
+            run_id=f"bronze-publish-{datetime.now(timezone.utc).isoformat()}",
+            inputs=inputs,
+            outputs=[f"bronze.{nama}" for nama in tables],
+        )
+    except Exception as exc:  # noqa: BLE001 - lineage tidak boleh mematikan flow
+        print(f"Lineage Bronze gagal: {exc}")
+        return False
+    print("Lineage Bronze terkirim." if dikirim else "Lineage Bronze tidak terkirim.")
+    return dikirim
+
+
+@task(
+    name="trigger-silver",
+    retries=2,
+    retry_delay_seconds=RETRY_DELAYS,
+    timeout_seconds=120,
+    log_prints=True,
+)
+def trigger_silver_task(bronze_run_id: str | None) -> dict[str, Any]:
+    """Picu run Silver setelah Bronze selesai, tanpa menunggu hasilnya.
+
+    Cron Silver dihapus karena menjadwalkan beberapa puluh menit setelah Bronze
+    hanya asumsi. Bila pemicuan gagal, Bronze tetap selesai dan alasannya
+    dicatat di keluaran flow.
+    """
+    from prefect.deployments import run_deployment
+
+    try:
+        flow_run = run_deployment(
+            name="silver-daily/production",
+            parameters={},
+            timeout=0,
+            as_subflow=False,
+            tags=["dipicu-bronze"],
+            idempotency_key=f"silver-after-bronze-{bronze_run_id or 'manual'}",
+        )
+    except Exception as exc:  # noqa: BLE001 - pemicuan gagal tidak boleh menggagalkan Bronze
+        print(f"Gagal memicu Silver: {exc}")
+        return {"triggered": False, "error": str(exc)}
+
+    print(f"Silver dipicu setelah Bronze: {flow_run.id}")
+    return {"triggered": True, "flow_run_id": str(flow_run.id)}
+
+
 @flow(name="bronze-daily", log_prints=True)
 def bronze_daily(
     days: int = 7,
@@ -139,6 +217,7 @@ def bronze_daily(
     longitude: float = 13.41,
 ) -> dict[str, Any]:
     """Isi Bronze untuk public_power, price, cuaca, dan beban ENTSO-E."""
+    configure_json_logging(SERVICE, run_id=flow_run_id())
     if start and end:
         window_start, window_end = start, end
     else:
@@ -166,6 +245,8 @@ def bronze_daily(
 
     published = publish_bronze_task()
     archived = sync_bronze_task()
+    lineage = emit_lineage_task([item["table"].removeprefix("bronze.") for item in published])
+    silver = trigger_silver_task(flow_run_id())
 
     return {
         "window": {"start": window_start, "end": window_end},
@@ -174,6 +255,8 @@ def bronze_daily(
         "new_batches": created,
         "published_tables": published,
         "bronze_archive": archived,
+        "lineage": lineage,
+        "silver_trigger": silver,
     }
 
 

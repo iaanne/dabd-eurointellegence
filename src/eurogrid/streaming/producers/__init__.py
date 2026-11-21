@@ -1,1 +1,1 @@
-"""Kafka producers for EuroGrid."""
+"""Producer Redpanda untuk EuroGrid."""

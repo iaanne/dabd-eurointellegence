@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from eurogrid.streaming.producers.entsoe_producer import publish_records, TOPIC
 
 
-def test_publish_records_mengirim_ke_kafka() -> None:
+def test_publish_records_mengirim_ke_redpanda() -> None:
     mock_producer = MagicMock()
 
     records = [

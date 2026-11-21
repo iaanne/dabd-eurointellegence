@@ -221,7 +221,7 @@ Energy-Charts poller -> Redpanda -> Consumer -> Bronze stream -> Silver
 | Table format | Apache Iceberg | Snapshot, schema evolution, ACID, dukungan Trino dan PyIceberg | Delta dan Hudi lebih terikat ekosistem tertentu |
 | Katalog | Iceberg REST catalog dengan Postgres | Stabil, terpisah dari compute, mudah di-backup | Katalog berbasis file lebih rapuh saat konkurensi |
 | Batch orchestration | Prefect 3 | Python-native, UI jelas, retry dan scheduling bawaan | Airflow lebih berat untuk satu mesin |
-| Stream broker | Redpanda | Satu binary, API Kafka, lag mudah dipantau | Kafka KRaft lebih berat; tetap didukung sebagai cadangan |
+| Stream broker | Redpanda | Satu binary, API Kafka, lag mudah dipantau | Kafka KRaft lebih berat untuk satu mesin; tidak dipakai |
 | Stream processing | Consumer Python | Cukup untuk volume proyek, mudah diuji | Flink dan Spark Streaming berlebihan |
 | Query engine | Trino | SQL atas Iceberg, mendukung banyak katalog | DuckDB cukup untuk lokal tetapi kurang untuk multi-user |
 | ML | scikit-learn dan MLflow | Baseline cepat, tracking dan registry lengkap | Model deep learning tidak diperlukan untuk baseline |
@@ -344,7 +344,7 @@ Rincian peran, kepemilikan requirement, dan aturan kolaborasi ada di `docs/TEAM.
 | Garage tidak sepenuhnya kompatibel dengan Iceberg | Gagal tulis atau multipart | Sedang | Uji multipart dan listing lebih dulu, siapkan MinIO sebagai cadangan |
 | Resource satu mesin tidak cukup | Service saling mengganggu | Sedang | Batasi memori per service, jalankan bertahap, matikan service yang tidak dipakai saat demo |
 | Prefect worker mati saat job | Batch tertunda | Sedang | Retry, health check, dan alert job gagal |
-| Redpanda berat | Lag dan konsumsi memori | Sedang | Batasi partisi dan retensi, siapkan Kafka KRaft sebagai cadangan |
+| Redpanda berat | Lag dan konsumsi memori | Sedang | Batasi partisi dan retensi, pantau memori container |
 | Skema sumber berubah | Transformasi gagal | Sedang | Kontrak data, tes fixture, dan validasi skema |
 | Waktu pengerjaan mepet | Fitur tidak selesai | Tinggi | Prioritaskan F-01 sampai F-18, tunda fitur opsional |
 | Kebocoran secret | Risiko keamanan | Rendah | `.env` di luar Git, rotasi token, audit konfigurasi |

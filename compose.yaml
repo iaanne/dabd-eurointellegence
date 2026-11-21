@@ -65,6 +65,8 @@ services:
     restart: unless-stopped
     depends_on:
       - prefect-server
+      - garage
+      - iceberg-rest
     env_file:
       - .env
     environment:
@@ -76,6 +78,9 @@ services:
       GARAGE_S3_ENDPOINT: http://garage:3900
       GARAGE_S3_REGION: garage
       AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      REDPANDA_BROKERS: redpanda:9092
+      TRINO_URL: http://trino:8081
+      OPENLINEAGE_URL: http://marquez:5000
     volumes:
       - ./data:/data:Z
       - ./flows:/app/flows:ro,Z
@@ -136,50 +141,6 @@ services:
       retries: 12
       start_period: 10s
 
-  kafka:
-    image: docker.io/apache/kafka:3.8.0
-    container_name: eurogrid-kafka
-    restart: unless-stopped
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      KAFKA_NODE_ID: 1
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_NUM_PARTITIONS: 3
-      CLUSTER_ID: "4L622nShTZaJguP5RKGxYg"
-    volumes:
-      - kafka-data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
-
-  kafka-init:
-    image: docker.io/apache/kafka:3.8.0
-    container_name: eurogrid-kafka-init
-    depends_on:
-      kafka:
-        condition: service_healthy
-    entrypoint: ["/bin/bash", "/infra/kafka/create-topics.sh"]
-    volumes:
-      - ./infra/kafka/create-topics.sh:/infra/kafka/create-topics.sh:ro,Z
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      KAFKA_REPLICATION_FACTOR: 1
-      KAFKA_TOPIC_PARTITIONS: 3
 
   streaming-producer:
     build:
@@ -190,12 +151,12 @@ services:
     container_name: eurogrid-streaming-producer
     restart: unless-stopped
     depends_on:
-      - kafka
-      - kafka-init
+      - redpanda
+      - redpanda-topics
     env_file:
       - .env
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDPANDA_BROKERS: redpanda:9092
       ENTSOE_POLLING_INTERVAL: "300"
       EUROGRID_DATA_DIR: /data
     command: ["python", "-m", "eurogrid.streaming.producers.entsoe_producer"]
@@ -211,12 +172,13 @@ services:
     container_name: eurogrid-streaming-consumer
     restart: unless-stopped
     depends_on:
-      - kafka
-      - kafka-init
+      - redpanda
+      - redpanda-topics
     env_file:
       - .env
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDPANDA_BROKERS: redpanda:9092
+      REDPANDA_STREAM_TOPIC: entsoe.actual_load
       ENTSOE_BRONZE_PATH: /data/bronze/entsoe_actual_load
       ENTSOE_CHECKPOINT_PATH: /data/checkpoints/entsoe_actual_load
     command: ["python", "-m", "eurogrid.streaming.consumers.entsoe_consumer"]
@@ -224,9 +186,316 @@ services:
       - ./data:/data:Z
       - ./src:/app/src:ro,Z
 
+  redpanda:
+    image: docker.io/redpandadata/redpanda:v26.2.7
+    container_name: eurogrid-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:39092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr=PLAINTEXT://0.0.0.0:8082,OUTSIDE://0.0.0.0:39080
+      - --advertise-pandaproxy-addr=PLAINTEXT://redpanda:8082,OUTSIDE://localhost:38082
+    ports:
+      - "9092:39092"
+      - "38082:39080"
+      - "127.0.0.1:9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9644/v1/status/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redpanda-topics:
+    image: docker.io/redpandadata/redpanda:v26.2.7
+    container_name: eurogrid-redpanda-topics
+    restart: "no"
+    depends_on:
+      - redpanda
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        n=0
+        until rpk topic create \
+          -X brokers=redpanda:9092 \
+          --partitions 3 --replicas 1 \
+          --if-not-exists \
+          eurogrid.events eurogrid.events.dlq entsoe.actual_load; do
+          n=$$((n+1))
+          if [ "$${n}" -ge 30 ]; then
+            echo "redpanda belum siap, topic tidak dibuat" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+
+  trino:
+    image: docker.io/trinodb/trino:484
+    container_name: eurogrid-trino
+    restart: unless-stopped
+    depends_on:
+      - iceberg-rest
+      - garage
+    ports:
+      - "8081:8081"
+    env_file:
+      - .env
+    volumes:
+      - ./infra/trino/etc/config.properties:/etc/trino/config.properties:ro,Z
+      - ./infra/trino/etc/jvm.config:/etc/trino/jvm.config:ro,Z
+      - ./infra/trino/etc/node.properties:/etc/trino/node.properties:ro,Z
+      - ./infra/trino/etc/catalog/iceberg.properties:/etc/trino/catalog/iceberg.properties:ro,Z
+      - trino-data:/data/trino
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: infra/mlflow/Dockerfile
+    image: localhost/eurogrid-mlflow:latest
+    container_name: eurogrid-mlflow
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:5000:5000"
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql://eurogrid:${POSTGRES_PASSWORD:-eurogrid}@postgres:5432/mlflow
+      - --default-artifact-root=/mlflow/artifacts
+    volumes:
+      - mlflow-data:/mlflow/artifacts
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  metabase:
+    # v0.60.3.3, dipin per digest (tag persis tidak tersedia di registry)
+    image: docker.io/metabase/metabase@sha256:66567d39bf2d03be6f33deefacbb24790131aeacca7cf1d5e206fefe892fcb42
+    container_name: eurogrid-metabase
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_HOST: postgres
+      MB_DB_USER: eurogrid
+      MB_DB_PASS: ${POSTGRES_PASSWORD:-eurogrid}
+    volumes:
+      - metabase-data:/metabase-data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  marquez-db:
+    image: docker.io/library/postgres:16
+    container_name: eurogrid-marquez-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      POSTGRES_DB: marquez
+    volumes:
+      - marquez-db-data:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marquez -d marquez"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  marquez:
+    image: docker.io/marquezproject/marquez:0.51.1
+    container_name: eurogrid-marquez
+    restart: unless-stopped
+    depends_on:
+      marquez-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5001:5000"
+    environment:
+      MARQUEZ_PORT: "5000"
+      MARQUEZ_ADMIN_PORT: "5001"
+      POSTGRES_HOST: marquez-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: marquez
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      SEARCH_ENABLED: "false"
+
+  marquez-web:
+    image: docker.io/marquezproject/marquez-web:0.51.1
+    container_name: eurogrid-marquez-web
+    restart: unless-stopped
+    depends_on:
+      - marquez
+    ports:
+      - "127.0.0.1:3002:3000"
+    environment:
+      MARQUEZ_HOST: marquez
+      MARQUEZ_PORT: "5000"
+      WEB_PORT: "3000"
+
+  metrics-exporter:
+    build:
+      context: .
+      dockerfile: infra/metrics/Dockerfile
+    image: localhost/eurogrid-metrics:latest
+    container_name: eurogrid-metrics
+    restart: unless-stopped
+    depends_on:
+      - iceberg-rest
+    env_file:
+      - .env
+    environment:
+      ICEBERG_CATALOG_URI: http://iceberg-rest:8181
+      ICEBERG_WAREHOUSE: s3://eurogrid-warehouse/
+      GARAGE_S3_ENDPOINT: http://garage:3900
+      GARAGE_S3_REGION: garage
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      PREFECT_API_URL: http://prefect-server:4200/api
+      METRICS_PORT: "9101"
+      METRICS_INTERVAL_SECONDS: "60"
+    ports:
+      - "127.0.0.1:9101:9101"
+
+
+  prometheus:
+    # v3.11.3, dipin per digest
+    image: docker.io/prom/prometheus@sha256:387d460e3b15ec55d2837fc9275388a4730dbc8c0287926d3f662c5298ce7385
+    container_name: eurogrid-prometheus
+    restart: unless-stopped
+    depends_on:
+      - metrics-exporter
+      - node-exporter
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro,Z
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+  alertmanager:
+    image: docker.io/prom/alertmanager:v0.27.0
+    container_name: eurogrid-alertmanager
+    restart: unless-stopped
+    depends_on:
+      - alert-sink
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./infra/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,Z
+      - alertmanager-data:/alertmanager
+
+  alert-sink:
+    image: docker.io/library/python:3.12-slim
+    container_name: eurogrid-alert-sink
+    restart: unless-stopped
+    command: ["python", "/srv/sink.py"]
+    environment:
+      ALERT_SINK_FILE: /data/alerts.jsonl
+      ALERT_SINK_PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./infra/alerts/sink.py:/srv/sink.py:ro,Z
+      - alerts-data:/data
+
+  node-exporter:
+    image: docker.io/prom/node-exporter:v1.8.2
+    container_name: eurogrid-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    ports:
+      - "127.0.0.1:9100:9100"
+    volumes:
+      - /:/host:ro
+
+
+  grafana:
+    # 13.0.1+security-01, dipin per digest
+    image: docker.io/grafana/grafana@sha256:135f4b96b7a54f904415dc51e71a1cd945b1f8400772b2feac2df5112b43f4ed
+    container_name: eurogrid-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro,Z
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro,Z
+      - grafana-data:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+
 volumes:
   garage-meta:
   garage-data:
   prefect-data:
   pg-data:
-  kafka-data:
+  redpanda-data:
+  trino-data:
+  mlflow-data:
+  metabase-data:
+  grafana-data:
+  marquez-db-data:
+  prometheus-data:
+  alertmanager-data:
+  alerts-data:

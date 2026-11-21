@@ -1,5 +1,5 @@
-kafka:
-  bootstrap_servers: kafka:9092
+redpanda:
+  bootstrap_servers: redpanda:9092
 
   producer:
     acks: all

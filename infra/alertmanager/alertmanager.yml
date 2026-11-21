@@ -1,0 +1,18 @@
+route:
+  receiver: webhook-lokal
+  group_by: ["alertname", "severity"]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+
+receivers:
+  - name: webhook-lokal
+    webhook_configs:
+      - url: http://alert-sink:8080/alerts
+        send_resolved: true
+        max_alerts: 0
+
+inhibit_rules:
+  - source_matchers: ['severity="critical"']
+    target_matchers: ['severity="warning"']
+    equal: ["alertname"]

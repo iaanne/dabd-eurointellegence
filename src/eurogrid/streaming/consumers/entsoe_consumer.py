@@ -1,7 +1,7 @@
 """
-ENTSO-E Kafka Consumer — Pure Python implementation.
+ENTSO-E Redpanda Consumer — Pure Python implementation.
 
-Reads JSON events from Kafka using kafka-python-ng,
+Reads JSON events from Redpanda using kafka-python-ng,
 validates and deduplicates them, then writes partitioned
 Parquet files to the Bronze layer using PyArrow.
 
@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config from environment (same vars as before)
 # ---------------------------------------------------------------------------
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "entsoe.actual_load")
-KAFKA_GROUP_ID = os.getenv("KAFKA_GROUP_ID", "eurogrid-bronze-writer")
+REDPANDA_BROKERS = os.getenv("REDPANDA_BROKERS", "redpanda:9092")
+REDPANDA_STREAM_TOPIC = os.getenv(
+    "REDPANDA_STREAM_TOPIC", "entsoe.actual_load"
+)
+REDPANDA_GROUP_ID = os.getenv("REDPANDA_GROUP_ID", "eurogrid-bronze-writer")
 
 BRONZE_PATH = Path(os.getenv("ENTSOE_BRONZE_PATH", "/data/bronze/entsoe_actual_load"))
 CHECKPOINT_PATH = Path(os.getenv("ENTSOE_CHECKPOINT_PATH", "/data/checkpoints/entsoe_actual_load"))
@@ -144,11 +146,11 @@ def flush_batch(rows: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 def create_consumer() -> KafkaConsumer:
-    """Create a KafkaConsumer that reads from earliest offset."""
+    """Buat KafkaConsumer (klien Redpanda) yang membaca dari offset paling awal."""
     return KafkaConsumer(
-        KAFKA_TOPIC,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=KAFKA_GROUP_ID,
+        REDPANDA_STREAM_TOPIC,
+        bootstrap_servers=REDPANDA_BROKERS,
+        group_id=REDPANDA_GROUP_ID,
         auto_offset_reset="earliest",
         enable_auto_commit=True,
         value_deserializer=lambda b: json.loads(b.decode("utf-8")),
@@ -163,7 +165,9 @@ def main() -> None:
     )
 
     logger.info("Starting EuroGrid ENTSO-E Consumer (pure Python)")
-    logger.info("Kafka        : %s  topic=%s", KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC)
+    logger.info(
+        "Redpanda      : %s  topic=%s", REDPANDA_BROKERS, REDPANDA_STREAM_TOPIC
+    )
     logger.info("Bronze path  : %s", BRONZE_PATH)
     logger.info("Checkpoint   : %s", CHECKPOINT_PATH)
 
@@ -176,7 +180,7 @@ def main() -> None:
     last_flush = time.monotonic()
 
     consumer = create_consumer()
-    logger.info("Connected to Kafka. Waiting for messages…")
+    logger.info("Connected to Redpanda. Waiting for messages…")
 
     try:
         while True:

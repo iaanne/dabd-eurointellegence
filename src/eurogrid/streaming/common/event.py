@@ -38,7 +38,7 @@ def build_event(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Build standardized event for Kafka.
+    Bangun event standar untuk Redpanda.
     """
 
     ingestion_time = datetime.now(
@@ -67,7 +67,7 @@ def build_event(
 
 def serialize_event(event: dict[str, Any]) -> bytes:
     """
-    Serialize event into JSON bytes for Kafka.
+    Serialisasi event menjadi bytes JSON untuk Redpanda.
     """
 
     return json.dumps(

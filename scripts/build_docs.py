@@ -691,7 +691,7 @@ def render_team() -> Path:
     <thead><tr><th>Keputusan</th><th>Kapan</th><th>Diputuskan oleh</th></tr></thead>
     <tbody>
       <tr><td>Katalog Iceberg REST atau Nessie</td><td>Sebelum M1</td><td>Ian, dengan masukan Nad</td></tr>
-      <tr><td>Redpanda atau Kafka KRaft</td><td>Sebelum M4</td><td>El, dengan masukan Ian</td></tr>
+      <tr><td>Redpanda</td><td>Diputuskan</td><td>El, dengan masukan Ian</td></tr>
       <tr><td>Marquez atau OpenMetadata</td><td>Sebelum M2</td><td>Nad, dengan masukan Ian</td></tr>
       <tr><td>Ambang quality gate</td><td>Sebelum M2</td><td>Nad dan Jim</td></tr>
       <tr><td>Metrik dashboard</td><td>Sebelum M5</td><td>El dan Jim</td></tr>

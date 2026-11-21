@@ -1,7 +1,7 @@
-"""Smoke test untuk Kafka broker dan streaming topics.
+"""Smoke test untuk broker Redpanda dan topik streaming.
 
 Jalankan dengan:
-    uv run --extra streaming python scripts/kafka_smoke.py
+    uv run --extra streaming python scripts/redpanda_smoke.py
 """
 
 from __future__ import annotations
@@ -14,15 +14,15 @@ import time
 from datetime import datetime, timezone
 
 from eurogrid.streaming.common.event import build_event
-from eurogrid.streaming.common.kafka import create_kafka_producer
+from eurogrid.streaming.common.redpanda import create_redpanda_producer
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="EuroGrid Kafka Smoke Test")
+    parser = argparse.ArgumentParser(description="EuroGrid Redpanda Smoke Test")
     parser.add_argument(
         "--bootstrap-server",
-        default=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
-        help="Kafka bootstrap servers (default: localhost:9092)",
+        default=os.getenv("REDPANDA_BROKERS", "localhost:9092"),
+        help="Redpanda brokers (default: localhost:9092)",
     )
     parser.add_argument(
         "--topic",
@@ -31,13 +31,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    os.environ["KAFKA_BOOTSTRAP_SERVERS"] = args.bootstrap_server
-    print(f"Connecting to Kafka at {args.bootstrap_server}...")
+    os.environ["REDPANDA_BROKERS"] = args.bootstrap_server
+    print(f"Menghubungi Redpanda di {args.bootstrap_server}...")
 
     try:
-        producer = create_kafka_producer()
+        producer = create_redpanda_producer()
     except Exception as exc:
-        print(f"FAILED to initialize Kafka Producer: {exc}", file=sys.stderr)
+        print(f"Gagal membuat producer Redpanda: {exc}", file=sys.stderr)
         return 1
 
     test_event = build_event(

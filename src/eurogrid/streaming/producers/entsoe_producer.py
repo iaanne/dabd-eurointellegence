@@ -6,7 +6,7 @@ import time
 from typing import Any, Callable
 
 from eurogrid.streaming.common.event import build_event
-from eurogrid.streaming.common.kafka import create_kafka_producer
+from eurogrid.streaming.common.redpanda import create_redpanda_producer
 from eurogrid.streaming.common.rate_limiter import RateLimiter
 
 
@@ -32,7 +32,7 @@ def publish_records(
 ) -> int:
     """
     Convert fetched records into standardized events
-    and publish them to Kafka.
+    and publish them to Redpanda.
 
     Expected record format:
     {
@@ -71,20 +71,20 @@ def run_producer(
     fetcher: Callable[[str], list[dict[str, Any]]],
 ) -> None:
     """
-    Poll ENTSO-E and publish records to Kafka.
+    Poll ENTSO-E and publish records to Redpanda.
 
     fetcher must accept a country code and return
     normalized records.
     """
 
-    producer = create_kafka_producer()
+    producer = create_redpanda_producer()
 
     limiter = RateLimiter(
         max_requests=RATE_LIMIT,
         period=60,
     )
 
-    logger.info("Starting ENTSO-E Kafka Producer")
+    logger.info("Starting ENTSO-E Redpanda Producer")
 
     try:
         while True:

@@ -1,0 +1,109 @@
+# Katalog dataset EuroGrid Intelligence.
+#
+# Berkas ini adalah sumber kebenaran untuk pemilik data, retensi, jadwal
+# refresh, grain, dan kunci bisnis. Dipakai oleh `eurogrid.catalog` dan
+# dicocokkan dengan tabel yang benar-benar ada di katalog Iceberg.
+#
+# Aturan singkat:
+#   * `owner` wajib diisi (inisial anggota tim).
+#   * `retention_days` null berarti "selama proyek berjalan".
+#   * `refresh` memakai format Prefect cron + zona waktu.
+
+version: 1
+
+datasets:
+  - name: bronze.entsoe_actual_load
+    layer: bronze
+    source: ENTSO-E Transparency Platform
+    owner: Ian
+    description: Beban listrik aktual per bidding zone, 15 menit.
+    grain: 15 menit per bidding zone
+    business_key: [bidding_zone, series_id, timestamp_utc]
+    retention_days: null
+    refresh: "0 5 * * * Europe/Berlin"
+    license: ENTSO-E Transparency Platform
+    columns: [timestamp_utc, dataset, series_id, series_name, value, unit, resolution, bidding_zone, country, document_type, process_type, license]
+
+  - name: bronze.energy_charts_price
+    layer: bronze
+    source: Energy-Charts API v2
+    owner: Ian
+    description: Harga day-ahead per zona penawaran, 15 menit.
+    grain: 15 menit per bidding zone
+    business_key: [bidding_zone, series_id, timestamp_utc]
+    retention_days: null
+    refresh: "0 5 * * * Europe/Berlin"
+    license: CC BY 4.0 (Bundesnetzagentur dan SMARD)
+    columns: [timestamp_utc, timestamp_local, dataset, series_id, series_name, value, unit, resolution, country, bidding_zone, license, generated_at, available_from, available_until]
+
+  - name: bronze.energy_charts_public_power
+    layer: bronze
+    source: Energy-Charts API v2
+    owner: Ian
+    description: Pembangkitan per jenis, beban, dan residual load, 15 menit.
+    grain: 15 menit per jenis pembangkitan
+    business_key: [country, series_id, timestamp_utc]
+    retention_days: null
+    refresh: "0 5 * * * Europe/Berlin"
+    license: CC BY 4.0 energy-charts.info
+    columns: [timestamp_utc, timestamp_local, dataset, series_id, series_name, value, unit, resolution, country, bidding_zone, license, generated_at, available_from, available_until]
+
+  - name: bronze.open_meteo_weather_hourly
+    layer: bronze
+    source: Open-Meteo Historical Weather API
+    owner: Ian
+    description: Cuaca historis per jam untuk lokasi Berlin.
+    grain: 1 jam per variabel cuaca
+    business_key: [location, variable, timestamp_utc]
+    retention_days: null
+    refresh: "0 5 * * * Europe/Berlin"
+    license: CC BY 4.0 Open-Meteo.com
+    columns: [timestamp_utc, location, variable, value, unit, latitude, longitude, timezone]
+
+  - name: silver.entsoe_actual_load
+    layer: silver
+    source: bronze.entsoe_actual_load
+    owner: Nad
+    description: Beban listrik tervalidasi dengan status kualitas.
+    grain: 15 menit per bidding zone
+    business_key: [bidding_zone, series_id, timestamp_utc]
+    retention_days: 365
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
+    license: ENTSO-E Transparency Platform
+    quality_gate: ambang gagal 1% baris atau 1% interval hilang
+
+  - name: silver.energy_charts_price
+    layer: silver
+    source: bronze.energy_charts_price
+    owner: Nad
+    description: Harga day-ahead tervalidasi; harga negatif tetap sah.
+    grain: 15 menit per bidding zone
+    business_key: [bidding_zone, series_id, timestamp_utc]
+    retention_days: 365
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
+    license: CC BY 4.0 (Bundesnetzagentur dan SMARD)
+    quality_gate: ambang gagal 1% baris atau 1% interval hilang
+
+  - name: silver.energy_charts_public_power
+    layer: silver
+    source: bronze.energy_charts_public_power
+    owner: Nad
+    description: Pembangkitan tervalidasi; negatif hanya sah pada tiga seri tertentu.
+    grain: 15 menit per jenis pembangkitan
+    business_key: [country, series_id, timestamp_utc]
+    retention_days: 365
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
+    license: CC BY 4.0 energy-charts.info
+    quality_gate: ambang gagal 1% baris atau 1% interval hilang
+
+  - name: silver.open_meteo_weather_hourly
+    layer: silver
+    source: bronze.open_meteo_weather_hourly
+    owner: Nad
+    description: Cuaca tervalidasi dengan batas per variabel.
+    grain: 1 jam per variabel cuaca
+    business_key: [location, variable, timestamp_utc]
+    retention_days: 365
+    refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
+    license: CC BY 4.0 Open-Meteo.com
+    quality_gate: ambang gagal 1% baris atau 1% interval hilang
