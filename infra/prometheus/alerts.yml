@@ -1,0 +1,70 @@
+groups:
+  - name: eurogrid-pipeline
+    interval: 30s
+    rules:
+      - alert: EuroGridFlowRunFailed
+        expr: eurogrid_flow_last_run_state{state=~"FAILED|CRASHED"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          owner: nad
+          channel: webhook-lokal
+        annotations:
+          summary: "Flow {{ $labels.flow }} gagal pada run terakhir"
+          description: >-
+            Run terakhir {{ $labels.flow }} berstatus {{ $labels.state }}.
+            Periksa log JSON worker dan Prefect UI, lalu jalankan ulang setelah
+            penyebabnya diperbaiki.
+
+      - alert: EuroGridDataStale
+        expr: eurogrid_table_freshness_seconds{layer="bronze"} > 172800
+        for: 30m
+        labels:
+          severity: warning
+          owner: nad
+          channel: webhook-lokal
+        annotations:
+          summary: "Tabel {{ $labels.table }} tidak diperbarui lebih dari 48 jam"
+          description: >-
+            Snapshot terakhir berumur {{ $value | humanizeDuration }}. Jadwal
+            Bronze berjalan harian; umur di atas 48 jam berarti dua jadwal
+            terlewat. Periksa worker Prefect dan sumber datanya.
+
+      - alert: EuroGridNodeCpuHigh
+        expr: 100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 85
+        for: 5m
+        labels:
+          severity: warning
+          owner: nad
+          channel: webhook-lokal
+        annotations:
+          summary: "CPU host di atas 85% selama 5 menit"
+          description: >-
+            Pemakaian CPU {{ $value | printf "%.1f" }}%. Bila berlanjut, worker
+            Prefect dan katalog Iceberg bisa melambat.
+
+      - alert: EuroGridNodeMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 5m
+        labels:
+          severity: critical
+          owner: nad
+          channel: webhook-lokal
+        annotations:
+          summary: "Memori tersedia host di bawah 10%"
+          description: >-
+            Sisa memori {{ $value | humanizePercentage }}. Tutup proses lain
+            atau tambah memori sebelum run berikutnya.
+
+      - alert: EuroGridExporterDown
+        expr: up{job="eurogrid"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          owner: nad
+          channel: webhook-lokal
+        annotations:
+          summary: "Exporter metrik EuroGrid tidak bisa dijaring"
+          description: >-
+            Prometheus gagal menjaring metrics-exporter selama 2 menit. Metrik
+            pipeline lain akan basi sampai exporter hidup lagi.

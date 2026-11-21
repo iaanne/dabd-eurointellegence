@@ -17,6 +17,7 @@ import pandas as pd
 
 from ..config import Settings, load_settings
 from ..inspect import find_batches, load_batch_frame
+from ..revisions import sort_by_revision
 
 
 @dataclass(frozen=True)
@@ -93,7 +94,9 @@ def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
 
     keys = [key for key in keys if key in frame.columns]
     if keys:
-        frame = frame.drop_duplicates(subset=keys, keep="last")
+        # Versi terbaru ditentukan ``generated_at`` sumber, bukan urutan batch
+        # yang terbaca dari disk (urutan itu mengikuti nama folder checksum).
+        frame = sort_by_revision(frame).drop_duplicates(subset=keys, keep="last")
     if "timestamp_utc" in frame.columns:
         frame = frame.sort_values("timestamp_utc", ignore_index=True)
     return frame

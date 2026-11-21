@@ -67,6 +67,17 @@ make sync-bronze
 `make demo` menarik data tujuh hari terakhir untuk empat sumber: `public_power`
 Jerman, `price` DE-LU, cuaca Berlin, dan beban aktual DE-LU dari ENTSO-E.
 
+Bila `make` tidak tersedia (misalnya PowerShell di Windows), perintah yang sama
+dijalankan langsung:
+
+```powershell
+uv sync --extra dev
+uv run pytest
+```
+
+`uv run pytest` adalah satu perintah tes yang dipakai `make test`, jadi hasilnya
+sama. Sudah diuji dari clone bersih: 84 tes lulus.
+
 ## Stack container
 
 ```bash
@@ -81,6 +92,14 @@ podman-compose -p eurogrid up -d
 | Postgres | 127.0.0.1:5432 | backend katalog Iceberg, database `iceberg` |
 | Iceberg REST | http://localhost:8181 | katalog `eurogrid`, metadata di Postgres |
 | Prefect UI | http://localhost:4200 | server dan worker |
+| Marquez API | http://127.0.0.1:5001 | lineage OpenLineage |
+| Marquez Web | http://127.0.0.1:3002 | tampilan lineage |
+| Prometheus | http://127.0.0.1:9090 | metrik pipeline dan node |
+| Grafana | http://127.0.0.1:3000 | dashboard `EuroGrid Pipeline` |
+| Exporter metrik | http://127.0.0.1:9101/metrics | angka mentah yang dibaca Prometheus |
+| Node exporter | http://127.0.0.1:9100/metrics | CPU, memori, disk host |
+| Alertmanager | http://127.0.0.1:9093 | status alert yang sedang aktif |
+| Penerima alert | http://127.0.0.1:8080/alerts | riwayat alert lokal (JSON) |
 
 Image `infra/iceberg/Dockerfile` menambahkan driver JDBC Postgres ke image
 `apache/iceberg-rest-fixture`. Tanpa driver itu katalog tidak dapat memakai
@@ -113,8 +132,11 @@ Deployment harian bernama `bronze-daily/production`:
 - Flow: `flows/bronze_daily.py` dengan empat task ingest, yaitu `public_power`, `price`, `weather`, dan `entsoe_load`.
 - Setelah ingest, task `publish-bronze-iceberg` menulis ulang tabel Bronze di Garage.
 - Task `sync-bronze-garage` menyalin batch mentah ke bucket `eurogrid-bronze`.
+- Task `trigger-silver` memicu run `silver-daily/production` tepat setelah tabel
+  Bronze terbit, tanpa menunggu hasilnya.
+- Deployment `silver-daily/production` sengaja tidak punya cron sendiri.
 - Work pool: `eurogrid-pool` tipe process.
-- Jadwal: cron `0 5 * * *` zona `Europe/Berlin`.
+- Jadwal Bronze: cron `0 5 * * *` zona `Europe/Berlin`.
 - Parameter bawaan: `days=7`, yaitu tujuh hari bergulir yang berakhir kemarin.
 
 ```bash
