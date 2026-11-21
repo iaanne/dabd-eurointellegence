@@ -227,5 +227,8 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(message)s",
         force=True,
     )
+    # httpx mencatat URL lengkap, termasuk securityToken. Turunkan ke WARNING.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     run_producer(fetch_entsoe_records)
