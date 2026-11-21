@@ -26,7 +26,6 @@ prefect = [
 ]
 streaming = [
   "kafka-python-ng>=2.2.2",
-  "pyspark>=4.0.0,<5",
 ]
 dev = [
   # Tes membaca flows/, jadi Prefect harus ada di lingkungan pengembangan.

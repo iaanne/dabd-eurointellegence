@@ -13,9 +13,3 @@ rate_limiter:
   requests_per_minute: 200
   retry_after_429: true
   max_retries: 3
-
-spark:
-  trigger_interval: 10 seconds
-
-  checkpoint:
-    path: /data/checkpoint/entsoe

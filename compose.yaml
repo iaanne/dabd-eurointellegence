@@ -147,12 +147,10 @@ services:
       context: .
       dockerfile: infra/streaming/Dockerfile
     image: eurogrid-streaming:latest
-    pull_policy: build
     container_name: eurogrid-streaming-producer
     restart: unless-stopped
     depends_on:
       - redpanda
-      - redpanda-topics
     env_file:
       - .env
     environment:
@@ -168,12 +166,10 @@ services:
       context: .
       dockerfile: infra/streaming/Dockerfile
     image: eurogrid-streaming:latest
-    pull_policy: build
     container_name: eurogrid-streaming-consumer
     restart: unless-stopped
     depends_on:
       - redpanda
-      - redpanda-topics
     env_file:
       - .env
     environment:
