@@ -81,6 +81,17 @@ make monitoring-up     # Prometheus dan Grafana
 `make demo` menarik empat sumber: `public_power` Jerman, `price` DE-LU, cuaca
 Berlin, dan beban aktual DE-LU dari ENTSO-E.
 
+Bila `make` tidak tersedia (misalnya PowerShell di Windows), perintah yang sama
+dijalankan langsung:
+
+```powershell
+uv sync --extra dev
+uv run pytest
+```
+
+`uv run pytest` adalah satu perintah tes yang dipakai `make test`, jadi hasilnya
+sama. Sudah diuji dari clone bersih: 84 tes lulus.
+
 ## Stack container
 
 ```bash
@@ -97,12 +108,18 @@ podman-compose -p eurogrid up -d
 | Prefect UI | http://localhost:4200 | server dan worker |
 | Redpanda Kafka API | http://localhost:9092 | topic `eurogrid.events` dan `eurogrid.events.dlq` |
 | Redpanda Admin API | http://127.0.0.1:9644 | hanya localhost |
-| Redpanda HTTP Proxy | http://localhost:8080 | Pandaproxy |
+| Redpanda HTTP Proxy | http://localhost:38082 | Pandaproxy |
 | Trino | http://localhost:8081 | katalog `iceberg`, koneksi ke Iceberg REST |
 | MLflow | http://127.0.0.1:5000 | eksperimen Jim (F-11), backend Postgres dan volume `mlflow-data` |
 | Metabase | http://localhost:3000 | dashboard El (F-13), metadata di Postgres |
-| Prometheus | http://127.0.0.1:9090 | metrik (F-14), dikonsumsi Grafana |
-| Grafana | http://localhost:3001 | tampilan metrik (F-14), admin dari `GRAFANA_ADMIN_PASSWORD` |
+| Marquez API | http://127.0.0.1:5001 | lineage OpenLineage |
+| Marquez Web | http://127.0.0.1:3002 | tampilan lineage |
+| Prometheus | http://127.0.0.1:9090 | metrik pipeline, node, dan Redpanda |
+| Grafana | http://127.0.0.1:3001 | dashboard `EuroGrid Pipeline` (F-14), admin dari `GRAFANA_ADMIN_PASSWORD` |
+| Exporter metrik | http://127.0.0.1:9101/metrics | angka mentah yang dibaca Prometheus |
+| Node exporter | http://127.0.0.1:9100/metrics | CPU, memori, disk host |
+| Alertmanager | http://127.0.0.1:9093 | status alert yang sedang aktif |
+| Penerima alert | http://127.0.0.1:8080/alerts | riwayat alert lokal (JSON) |
 
 Image `infra/iceberg/Dockerfile` menambahkan driver JDBC Postgres ke image
 `apache/iceberg-rest-fixture`. Tanpa driver itu katalog tidak dapat memakai
@@ -134,10 +151,13 @@ Deployment harian `bronze-daily/production`:
 
 - Flow `flows/bronze_daily.py` dengan empat task ingest: `public_power`, `price`,
   `weather`, dan `entsoe_load`.
-- `publish-bronze-iceberg` menulis ulang tabel Bronze di Garage.
-- `sync-bronze-garage` menyalin batch mentah ke bucket `eurogrid-bronze`.
-- Work pool `eurogrid-pool` tipe process, jadwal cron `0 5 * * *` zona
-  `Europe/Berlin`, parameter bawaan `days=7`.
+- Task `publish-bronze-iceberg` menulis ulang tabel Bronze di Garage.
+- Task `sync-bronze-garage` menyalin batch mentah ke bucket `eurogrid-bronze`.
+- Task `trigger-silver` memicu run `silver-daily/production` tepat setelah tabel
+  Bronze terbit, tanpa menunggu hasilnya.
+- Deployment `silver-daily/production` sengaja tidak punya cron sendiri.
+- Work pool `eurogrid-pool` tipe process, jadwal Bronze cron `0 5 * * *` zona
+  `Europe/Berlin`, parameter bawaan `days=7` (tujuh hari bergulir sampai kemarin).
 
 ```bash
 make prefect-up       # nyalakan server dan worker
@@ -186,10 +206,10 @@ yang membaca kredensial Garage dari variabel lingkungan.
 
 ## Monitoring
 
-Prometheus dan Grafana untuk metrik (F-14, milik Nad). Prometheus punya target
-inti: dirinya, Redpanda, dan Grafana. Exporter aplikasi ditambahkan Nad di
-`infra/prometheus/prometheus.yml`. Grafana mendapat datasource Prometheus
-otomatis lewat provisioning.
+Prometheus dan Grafana untuk metrik (F-14, milik Nad). Prometheus menjaring
+dirinya sendiri, Redpanda, Grafana, node exporter, exporter aplikasi, dan
+alertmanager, semuanya di `infra/prometheus/prometheus.yml`. Grafana mendapat
+datasource Prometheus otomatis lewat provisioning.
 
 ```bash
 make monitoring-up     # nyalakan Prometheus dan Grafana

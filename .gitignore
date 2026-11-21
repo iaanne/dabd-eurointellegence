@@ -20,3 +20,4 @@ __pycache__/
 
 # Materi kuliah dan salinan PDF referensi.
 /referensi/
+.vscode/
