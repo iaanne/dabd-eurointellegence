@@ -1,7 +1,7 @@
 START ?= $(shell date -d '7 days ago' +%F)
 END ?= $(shell date -d 'yesterday' +%F)
 
-.PHONY: setup test demo demo-power demo-price demo-weather demo-entsoe list show docs clean prefect-up prefect-down prefect-deploy prefect-run prefect-logs publish-iceberg sync-bronze
+.PHONY: setup test demo demo-power demo-price demo-weather demo-entsoe list show docs clean prefect-up prefect-down prefect-deploy prefect-run prefect-logs publish-iceberg sync-bronze redpanda-up redpanda-topics redpanda-list trino-up trino-query mlflow-up metabase-up monitoring-up monitoring-down backup restore-test
 
 setup:
 	uv sync --extra dev
@@ -55,3 +55,34 @@ prefect-run:
 
 prefect-logs:
 	podman logs -f eurogrid-prefect-worker
+
+redpanda-up:
+	podman-compose -p eurogrid up -d redpanda redpanda-topics
+
+redpanda-topics:
+	podman exec eurogrid-redpanda rpk topic create -X brokers=localhost:9092 --if-not-exists --partitions 3 --replicas 1 eurogrid.events eurogrid.events.dlq
+
+redpanda-list:
+	podman exec eurogrid-redpanda rpk topic list -X brokers=localhost:9092
+
+trino-up:
+	podman-compose -p eurogrid up -d trino
+
+trino-query:
+	podman exec eurogrid-trino trino --server http://localhost:8081 --catalog iceberg --schema bronze --execute "$(Q)"
+mlflow-up:
+	podman-compose -p eurogrid up -d mlflow
+
+metabase-up:
+	podman-compose -p eurogrid up -d metabase
+
+monitoring-up:
+	podman-compose -p eurogrid up -d prometheus grafana
+
+monitoring-down:
+	podman-compose -p eurogrid stop prometheus grafana
+backup:
+	scripts/backup.sh
+
+restore-verify:
+	scripts/restore.sh $(SRC)

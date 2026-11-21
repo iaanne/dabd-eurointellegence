@@ -18,4 +18,6 @@ __pycache__/
 /PRD.pdf
 /TEAM.pdf
 
+# Materi kuliah dan salinan PDF referensi.
+/referensi/
 .vscode/
