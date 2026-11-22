@@ -43,10 +43,39 @@ def validate_silver_task(datasets: list[str] | None = None) -> list[dict[str, An
     return [item.to_dict() for item in hasil]
 
 
+@task(
+    name="trigger-gold",
+    retries=2,
+    retry_delay_seconds=RETRY_DELAYS,
+    timeout_seconds=120,
+    log_prints=True,
+)
+def trigger_gold_task(silver_run_id: str | None) -> dict[str, Any]:
+    """Picu run Gold setelah Silver lolos tanpa status blocked."""
+    from prefect.deployments import run_deployment
+
+    try:
+        flow_run = run_deployment(
+            name="gold-daily/production",
+            parameters={},
+            timeout=0,
+            as_subflow=False,
+            tags=["dipicu-silver"],
+            idempotency_key=f"gold-after-silver-{silver_run_id or 'manual'}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"Gagal memicu Gold: {exc}")
+        return {"triggered": False, "error": str(exc)}
+
+    print(f"Gold dipicu setelah Silver: {flow_run.id}")
+    return {"triggered": True, "flow_run_id": str(flow_run.id)}
+
+
 @flow(name="silver-daily", log_prints=True)
 def silver_daily(datasets: list[str] | None = None) -> dict[str, Any]:
     """Validasi Bronze menjadi Silver untuk dataset terpilih."""
-    configure_json_logging(SERVICE, run_id=flow_run_id())
+    run_id = flow_run_id()
+    configure_json_logging(SERVICE, run_id=run_id)
     hasil = validate_silver_task(datasets=datasets)
     total_lolos = sum(item["rows_passed"] for item in hasil)
     total_gagal = sum(item["rows_failed"] for item in hasil)
@@ -56,11 +85,18 @@ def silver_daily(datasets: list[str] | None = None) -> dict[str, Any]:
         f"Selesai: {total_lolos} baris lolos, {total_gagal} baris karantina, "
         f"{len(diblokir)} dataset diblokir"
     )
+    gold_trigger: dict[str, Any] = {"triggered": False, "reason": "blocked"}
+    if not diblokir:
+        gold_trigger = trigger_gold_task(run_id)
+    else:
+        print(f"Gold tidak dipicu karena Silver diblokir: {', '.join(diblokir)}")
+
     return {
         "datasets": hasil,
         "rows_passed": total_lolos,
         "rows_failed": total_gagal,
         "blocked": diblokir,
+        "gold_trigger": gold_trigger,
     }
 
 

@@ -36,3 +36,19 @@ deployments:
     work_pool:
       name: eurogrid-pool
 
+  - name: production
+    description: >-
+      Bangun tiga mart Gold dan jalankan batch inference ML. Tidak punya jadwal
+      sendiri: dipicu oleh flow Silver setelah quality gate lolos.
+    entrypoint: flows/gold_daily.py:gold_daily
+    tags:
+      - gold
+      - ml
+      - daily
+    parameters:
+      start_date: null
+      end_date: null
+      run_ml: true
+    work_pool:
+      name: eurogrid-pool
+

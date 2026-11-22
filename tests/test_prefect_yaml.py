@@ -49,6 +49,22 @@ def test_bronze_memicu_silver_setelah_terbit() -> None:
     assert "timeout=0" in isi
 
 
+def test_deployment_gold_daily_tanpa_jadwal_sendiri() -> None:
+    """Gold dipicu Silver, jadi tidak punya cron sendiri."""
+    deployment = _cari("flows/gold_daily.py:gold_daily")
+
+    assert deployment["name"] == "production"
+    assert deployment["work_pool"]["name"] == "eurogrid-pool"
+    assert not deployment.get("schedules")
+
+
+def test_silver_memicu_gold_jika_tidak_diblokir() -> None:
+    isi = (ROOT / "flows" / "silver_daily.py").read_text(encoding="utf-8")
+
+    assert "gold-daily/production" in isi
+    assert "trigger_gold_task" in isi
+
+
 def test_entrypoint_deployment_ada() -> None:
     for deployment in _deployments():
         berkas, fungsi = deployment["entrypoint"].split(":")

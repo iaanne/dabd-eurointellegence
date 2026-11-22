@@ -187,14 +187,14 @@ PRICE = DatasetRule(
     units=("EUR / MWh",),
     expected_resolution="PT15M",
     bounds=ValueBounds(
-        reject_below=-1_000.0,
-        reject_above=10_000.0,
+        reject_below=-500.0,
+        reject_above=5_000.0,
         warn_below=-26.2,
         warn_above=368.8,
     ),
     notes=(
         "Harga negatif sah secara pasar dan tidak boleh dikarantina. Batas "
-        "reject hanya menangkap salah satuan atau salah skala. Peringatan "
+        "reject mengikuti kontrak PRD (-500 sampai 5.000 EUR/MWh). Peringatan "
         "memakai pagar 1,5xIQR (-26,2 dan 368,8 EUR/MWh)."
     ),
 )

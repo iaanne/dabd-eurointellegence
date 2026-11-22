@@ -107,3 +107,47 @@ datasets:
     refresh: "dipicu bronze-daily setelah publish (tanpa cron)"
     license: CC BY 4.0 Open-Meteo.com
     quality_gate: ambang gagal 1% baris atau 1% interval hilang
+
+  - name: gold.mart_hourly_mix
+    layer: gold
+    source: silver.energy_charts_public_power
+    owner: Jim
+    description: Bauran pembangkitan dan beban per jam UTC di Jerman.
+    grain: 1 jam per negara per series_id
+    business_key: [country, hour_utc, series_id]
+    retention_days: 730
+    refresh: "dipicu silver-daily setelah quality gate lolos (tanpa cron)"
+    license: CC BY 4.0 energy-charts.info
+
+  - name: gold.mart_daily_price
+    layer: gold
+    source: silver.energy_charts_price
+    owner: Jim
+    description: Ringkasan harga listrik day-ahead harian zona DE-LU.
+    grain: 1 hari UTC per bidding zone
+    business_key: [bzn, event_date]
+    retention_days: 730
+    refresh: "dipicu silver-daily setelah quality gate lolos (tanpa cron)"
+    license: CC BY 4.0 (Bundesnetzagentur dan SMARD)
+
+  - name: gold.mart_forecast_features
+    layer: gold
+    source: silver.energy_charts_public_power, silver.energy_charts_price, silver.open_meteo_weather_hourly, silver.entsoe_actual_load
+    owner: Jim
+    description: Tabel fitur per jam bebas leakage untuk training dan inference model beban.
+    grain: 1 jam UTC per wilayah dan zona
+    business_key: [country, bzn, timestamp_utc]
+    retention_days: 730
+    refresh: "dipicu silver-daily setelah quality gate lolos (tanpa cron)"
+    license: CC BY 4.0 (energy-charts.info, Open-Meteo.com) dan ENTSO-E
+
+  - name: gold.ml_load_predictions
+    layer: gold
+    source: gold.mart_forecast_features
+    owner: Jim
+    description: Hasil batch inference peramalan beban beserta versi model dan status error.
+    grain: 1 record input per versi model
+    business_key: [input_record_id, model_version]
+    retention_days: 730
+    refresh: "dipicu silver-daily setelah mart Gold terbit (tanpa cron)"
+    license: CC BY 4.0 (energy-charts.info, Open-Meteo.com) dan ENTSO-E
