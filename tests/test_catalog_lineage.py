@@ -40,8 +40,8 @@ def _entri(**ubah) -> dict:
 def test_katalog_repo_lengkap() -> None:
     katalog = load_catalog(KATALOG)
 
-    assert len(katalog) == 8
-    assert {entri.layer for entri in katalog.values()} == {"bronze", "silver"}
+    assert len(katalog) == 12
+    assert {entri.layer for entri in katalog.values()} == {"bronze", "silver", "gold"}
     for nama, entri in katalog.items():
         assert entri.owner, nama
         assert entri.business_key, nama
@@ -49,8 +49,10 @@ def test_katalog_repo_lengkap() -> None:
 
     bronze = {nama for nama, entri in katalog.items() if entri.layer == "bronze"}
     silver = {nama for nama, entri in katalog.items() if entri.layer == "silver"}
+    gold = {nama for nama, entri in katalog.items() if entri.layer == "gold"}
     assert len(bronze) == 4
     assert len(silver) == 4
+    assert len(gold) == 4
     assert {nama.replace("silver.", "bronze.") for nama in silver} == bronze
 
 
@@ -60,8 +62,10 @@ def test_retensi_sesuai_arsitektur() -> None:
     for nama, entri in katalog.items():
         if entri.layer == "bronze":
             assert entri.retention_days is None, nama
-        else:
+        elif entri.layer == "silver":
             assert entri.retention_days == 365, nama
+        else:
+            assert entri.retention_days == 730, nama
 
 
 def test_pemilik_per_dataset() -> None:
@@ -73,6 +77,14 @@ def test_pemilik_per_dataset() -> None:
             "silver.energy_charts_public_power",
             "silver.entsoe_actual_load",
             "silver.open_meteo_weather_hourly",
+        ]
+    )
+    assert daftar["Jim"] == sorted(
+        [
+            "gold.mart_daily_price",
+            "gold.mart_forecast_features",
+            "gold.mart_hourly_mix",
+            "gold.ml_load_predictions",
         ]
     )
 

@@ -84,6 +84,59 @@ def _sync_bronze(args: argparse.Namespace) -> dict[str, Any]:
     return upload_bronze()
 
 
+def _publish_gold(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        from .gold.warehouse import publish_gold
+    except ImportError as exc:  # pragma: no cover - hanya saat extra belum dipasang
+        raise ValueError(
+            "PyIceberg belum terpasang. Jalankan `uv sync --extra iceberg`."
+        ) from exc
+
+    results = publish_gold(
+        start_date=args.start,
+        end_date=args.end,
+        skip_quality_gate=args.skip_quality_gate,
+    )
+    return {"tables": [result.to_dict() for result in results]}
+
+
+def _train_ml(args: argparse.Namespace) -> dict[str, Any]:
+    from .bronze.warehouse import build_catalog
+    from .gold.warehouse import gold_namespace
+    from .ml.experiment import run_experiments
+
+    catalog = build_catalog(load_settings())
+    features_id = f"{gold_namespace()}.mart_forecast_features"
+    features_df = catalog.load_table(features_id).scan().to_pandas()
+    report = run_experiments(
+        features_df,
+        artifact_dir=args.artifact_dir,
+        test_ratio=args.test_ratio,
+        seed=args.seed,
+    )
+    return report.to_dict()
+
+
+def _predict_ml(args: argparse.Namespace) -> dict[str, Any]:
+    from .ml.inference import publish_predictions
+
+    return publish_predictions(artifact_dir=args.artifact_dir)
+
+
+def _gold_query(args: argparse.Namespace) -> int | None:
+    from .gold.queries import render_query
+
+    sql = render_query(
+        args.name,
+        start_date=args.start,
+        end_date=args.end,
+        country=args.country,
+        bzn=args.bzn,
+    )
+    print(sql)
+    return None
+
+
 def _list_batches(args: argparse.Namespace) -> None:
     settings = load_settings()
     batches = find_batches(settings.data_dir)
@@ -257,6 +310,46 @@ def _build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--json", action="store_true", help="Keluarkan JSON.")
     show_parser.set_defaults(handler=_show_batch)
 
+    pg = sub.add_parser(
+        "publish-gold",
+        help="Bangun dan terbitkan tiga mart Gold ke Iceberg.",
+    )
+    pg.add_argument("--start", help="Tanggal awal backfill (YYYY-MM-DD).")
+    pg.add_argument("--end", help="Tanggal akhir backfill (YYYY-MM-DD).")
+    pg.add_argument(
+        "--skip-quality-gate",
+        action="store_true",
+        help="Lewati pemeriksaan status Silver quality gate.",
+    )
+    pg.set_defaults(handler=_publish_gold)
+
+    tml = sub.add_parser(
+        "train-ml",
+        help="Latih dua eksperimen model beban dari Gold dan catat ke MLflow.",
+    )
+    tml.add_argument("--artifact-dir", default="data/models")
+    tml.add_argument("--test-ratio", type=float, default=0.2)
+    tml.add_argument("--seed", type=int, default=42)
+    tml.set_defaults(handler=_train_ml)
+
+    pml = sub.add_parser(
+        "predict-ml",
+        help="Jalankan scheduled batch inference ke gold.ml_load_predictions.",
+    )
+    pml.add_argument("--artifact-dir", default="data/models")
+    pml.set_defaults(handler=_predict_ml)
+
+    gq = sub.add_parser(
+        "gold-query",
+        help="Tampilkan SQL Trino tervalidasi untuk salah satu dari 10 query Gold.",
+    )
+    gq.add_argument("--name", required=True)
+    gq.add_argument("--start", default=start)
+    gq.add_argument("--end", default=end)
+    gq.add_argument("--country", default="de")
+    gq.add_argument("--bzn", default="DE-LU")
+    gq.set_defaults(handler=_gold_query)
+
     return parser
 
 
@@ -265,7 +358,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = args.handler(args)
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, RuntimeError) as exc:
         print(f"Gagal: {exc}", file=sys.stderr)
         return 1
     if isinstance(result, int):

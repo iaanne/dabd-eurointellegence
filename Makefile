@@ -36,6 +36,15 @@ show:
 publish-iceberg:
 	uv run --extra iceberg eurogrid publish-iceberg
 
+publish-gold:
+	uv run --extra iceberg eurogrid publish-gold
+
+train-ml:
+	uv run --extra iceberg eurogrid train-ml
+
+predict-ml:
+	uv run --extra iceberg eurogrid predict-ml
+
 sync-bronze:
 	uv run eurogrid sync-bronze
 
